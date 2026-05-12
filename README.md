@@ -4,10 +4,20 @@
 
 <div align="center">
   <br />
-  <img src="https://via.placeholder.com/800x400/1e293b/ffffff?text=RestaurantOS+Screenshot" alt="RestaurantOS Screenshot" width="800" />
+  <img src="client/public/screenshots/homepage.png" alt="RestaurantOS Homepage" width="800" />
   <br />
-  <sub><i>Screenshot coming soon — add your own by placing an image in the repo and updating this path.</i></sub>
+  <sub><i>Customer homepage — hero section, quick actions, and step-by-step ordering guide</i></sub>
   <br /><br />
+  <table>
+    <tr>
+      <td><img src="client/public/screenshots/menu.png" alt="Menu Page" width="380" /></td>
+      <td><img src="client/public/screenshots/login.png" alt="Login Page" width="380" /></td>
+    </tr>
+    <tr>
+      <td align="center"><sub><i>Menu browsing with cart</i></sub></td>
+      <td align="center"><sub><i>Admin login</i></sub></td>
+    </tr>
+  </table>
 </div>
 
 [![CI](https://github.com/HProjectRs/RestaurantOS/actions/workflows/ci.yml/badge.svg)](https://github.com/HProjectRs/RestaurantOS/actions/workflows/ci.yml)
