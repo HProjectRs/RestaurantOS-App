@@ -85,7 +85,7 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         try {
           await api.post('/auth/logout')
-        } catch {}
+        } catch { /* ignore */ }
         localStorage.removeItem('accessToken')
         localStorage.removeItem('refreshToken')
         set({ user: null, business: null, isAuthenticated: false })

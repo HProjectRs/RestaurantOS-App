@@ -12,7 +12,7 @@ const CACHE_KEY = 'kitchen-orders-cache'
 function cacheOrders(orders: Order[]) {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(orders))
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function getCachedOrders(): Order[] {

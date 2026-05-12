@@ -54,5 +54,5 @@ jobs:
         working-directory: client
 
       - name: ESLint
-        run: npx eslint . --ext ts,tsx
+        run: npx eslint "src/**/*.{ts,tsx}"
         working-directory: client

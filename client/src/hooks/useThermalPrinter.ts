@@ -75,7 +75,7 @@ export function useThermalPrinter() {
     if (device) {
       try {
         await device.close()
-      } catch {}
+      } catch { /* ignore */ }
       setDevice(null)
     }
   }, [device])
