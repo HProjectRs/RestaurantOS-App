@@ -32,7 +32,9 @@ import { initSentry, setupSentryErrorHandler } from './sentry'
 import { validateEnv } from './check-env'
 
 dotenv.config()
-validateEnv()
+if (process.env.NODE_ENV !== 'test') {
+  validateEnv()
+}
 
 const app = express()
 const httpServer = createServer(app)

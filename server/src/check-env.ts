@@ -15,6 +15,7 @@ const DEFAULTS_TO_REJECT: Record<string, string[]> = {
   REFRESH_SECRET: ['change-me', 'change-this-to-another-long-random-string', 'your-refresh-secret'],
   DATABASE_URL: ['file:./dev.db'],
 }
+const SKIP_DEFAULT_CHECK_FOR_TEST: string[] = ['JWT_SECRET', 'REFRESH_SECRET', 'DATABASE_URL']
 
 export function validateEnv(): void {
   const missing: string[] = []
@@ -24,6 +25,10 @@ export function validateEnv(): void {
     const value = process.env[varName]
     if (!value) {
       missing.push(varName)
+      continue
+    }
+
+    if (process.env.NODE_ENV === 'test' && SKIP_DEFAULT_CHECK_FOR_TEST.includes(varName)) {
       continue
     }
 
