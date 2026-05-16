@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:admin": "vite --config vite.admin.config.ts",
     "build": "tsc -b && vite build",
+    "build:admin": "tsc -b && vite build --config vite.admin.config.ts",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
@@ -19,6 +21,7 @@
     "test:e2e:setup": "cd ../server && npm run db:setup"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@sentry/react": "^10.53.0",
     "@stripe/react-stripe-js": "^6.3.0",
     "@stripe/stripe-js": "^9.4.0",

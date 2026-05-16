@@ -3,7 +3,8 @@ import { useAuthStore } from '../../store/authStore'
 import {
   LayoutDashboard, Menu, ShoppingBag, Table2, Users, Wifi,
   BarChart3, CalendarDays, Settings, LogOut, ChefHat, Bell,
-  CreditCard, Clock, TrendingDown, UserCog, X,
+  CreditCard, Clock, TrendingDown, UserCog, X, ChevronLeft,
+  UtensilsCrossed,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { getSocket } from '../../services/socket'
@@ -11,15 +12,15 @@ import LanguageSwitcher from '../ui/LanguageSwitcher'
 import toast from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
-const navItems: { to: string; icon: any; label: string; end?: boolean; roles?: string[]; external?: boolean }[] = [
+const navItems: { to: string; icon: any; label: string; end?: boolean; roles?: string[] }[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'nav.dashboard', end: true },
-  { to: '/admin/pos', icon: CreditCard, label: 'nav.pos', roles: [] },
-  { to: '/admin/orders', icon: ShoppingBag, label: 'nav.orders', roles: [] },
+  { to: '/admin/pos', icon: CreditCard, label: 'nav.pos' },
+  { to: '/admin/orders', icon: ShoppingBag, label: 'nav.orders' },
   { to: '/admin/menu', icon: Menu, label: 'nav.menu', roles: ['ADMIN', 'MANAGER'] },
-  { to: '/admin/tables', icon: Table2, label: 'nav.tables', roles: [] },
-  { to: '/admin/reservations', icon: CalendarDays, label: 'nav.reservations', roles: [] },
-  { to: '/admin/employees', icon: Users, label: 'nav.employees', roles: [] },
-  { to: '/admin/shifts', icon: Clock, label: 'nav.shifts', roles: [] },
+  { to: '/admin/tables', icon: Table2, label: 'nav.tables' },
+  { to: '/admin/reservations', icon: CalendarDays, label: 'nav.reservations' },
+  { to: '/admin/employees', icon: Users, label: 'nav.employees' },
+  { to: '/admin/shifts', icon: Clock, label: 'nav.shifts' },
   { to: '/admin/wifi', icon: Wifi, label: 'nav.wifi', roles: ['ADMIN', 'MANAGER'] },
   { to: '/admin/expenses', icon: TrendingDown, label: 'nav.expenses', roles: ['ADMIN', 'MANAGER'] },
   { to: '/admin/reports', icon: BarChart3, label: 'nav.reports', roles: ['ADMIN', 'MANAGER'] },
@@ -39,11 +40,11 @@ export default function AdminLayout() {
 
     const handleWaiterCall = (data: any) => {
       toast.custom(() => (
-        <div className="bg-yellow-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 min-w-[250px]">
-          <Bell className="w-5 h-5" />
+        <div className="bg-amber-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 min-w-[280px] border border-amber-500/30">
+          <Bell className="w-5 h-5 shrink-0" />
           <div>
             <p className="font-semibold">{t('waiter:called')}</p>
-            <p className="text-sm opacity-90">{t('consumer.table')} {data.tableNumber}</p>
+            <p className="text-sm opacity-80">{t('consumer.table')} {data.tableNumber}</p>
           </div>
         </div>
       ), { duration: 8000 })
@@ -52,11 +53,11 @@ export default function AdminLayout() {
 
     const handleNewOrder = (order: any) => {
       toast.custom(() => (
-        <div className="bg-green-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 min-w-[250px]">
-          <ShoppingBag className="w-5 h-5" />
+        <div className="bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 min-w-[280px] border border-emerald-500/30">
+          <ShoppingBag className="w-5 h-5 shrink-0" />
           <div>
             <p className="font-semibold">{t('orders.title')}</p>
-            <p className="text-sm opacity-90">#{order.orderNumber} - {order.total?.toFixed(2)} {t('currency')}</p>
+            <p className="text-sm opacity-80">#{order.orderNumber} — {order.total?.toFixed(2)} {t('currency')}</p>
           </div>
         </div>
       ), { duration: 5000 })
@@ -81,47 +82,75 @@ export default function AdminLayout() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50 flex" dir="auto">
+    <div className="min-h-screen bg-surface-950 flex" dir="auto">
+      {/* Mobile header */}
+      <header className="fixed top-0 inset-x-0 z-40 bg-surface-900/90 backdrop-blur-xl border-b border-surface-700/50 lg:hidden">
+        <div className="flex items-center justify-between px-4 h-14">
+          <button onClick={() => setMobileOpen(true)} className="p-2 hover:bg-surface-700 rounded-xl text-surface-200">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary-500 flex items-center justify-center text-white font-bold text-xs">R</div>
+            <span className="font-bold text-sm text-surface-50">{business?.nameAr || business?.name || 'RestaurantOS'}</span>
+          </div>
+          <button
+            onClick={() => setNotifications([])}
+            className="relative p-2 hover:bg-surface-700 rounded-xl text-surface-200"
+          >
+            <Bell size={18} />
+            {notifications.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold ring-2 ring-surface-900">
+                {notifications.length > 9 ? '9+' : notifications.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* Sidebar overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/60 z-30 lg:hidden" onClick={() => setMobileOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 right-0 z-30 w-64 bg-white border-l border-gray-200 transform transition-transform duration-200 lg:translate-x-0 lg:static lg:inset-auto ${
+      <aside className={`fixed inset-y-0 right-0 z-30 w-64 bg-surface-900 border-l border-surface-700/50 transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${
         mobileOpen ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="h-full flex flex-col">
-          <div className="p-4 border-b">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-bold">
-                R
+          {/* Sidebar header */}
+          <div className="p-4 border-b border-surface-700/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold shadow-glow">
+                  <UtensilsCrossed size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-bold text-sm text-surface-50 truncate">{business?.nameAr || business?.name || 'RestaurantOS'}</h2>
+                  <p className="text-xs text-surface-400 truncate">{user?.name}</p>
+                </div>
               </div>
-              <div className="flex-1">
-                <h2 className="font-bold text-sm">{business?.nameAr || business?.name || 'RestaurantOS'}</h2>
-                <p className="text-xs text-gray-500">{user?.name}</p>
-              </div>
-              <LanguageSwitcher compact />
-              <button
-                onClick={() => setNotifications([])}
-                className="relative p-2 hover:bg-gray-100 rounded-lg"
-                title={`${notifications.length} ${t('notification')}`}
-              >
-                <Bell className="w-5 h-5 text-gray-500" />
-                {notifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                    {notifications.length}
-                  </span>
-                )}
+              <button onClick={() => setMobileOpen(false)} className="p-1.5 hover:bg-surface-700 rounded-lg text-surface-400 lg:hidden">
+                <X size={16} />
               </button>
             </div>
+
+            {/* Notification preview */}
             {notifications.length > 0 && (
-              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                {notifications.slice(0, 5).map((n, i) => (
-                  <div key={i} className="text-xs bg-yellow-50 text-yellow-800 px-2 py-1 rounded-lg">
-                    🔔 {t('consumer.table')} {n.tableNumber}: {n.message}
+              <div className="mt-3 space-y-1 max-h-32 overflow-y-auto">
+                {notifications.slice(0, 4).map((n, i) => (
+                  <div key={i} className="text-xs bg-amber-500/10 text-amber-300 px-2.5 py-1.5 rounded-lg border border-amber-500/20 flex items-center gap-1.5">
+                    <Bell size={10} />
+                    {t('consumer.table')} {n.tableNumber}: {n.message || t('waiter:called')}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+          {/* Navigation */}
+          <nav className="flex-1 overflow-y-auto p-3 space-y-0.5">
             {filteredNav.map(item => (
               <NavLink
                 key={item.to}
@@ -129,58 +158,45 @@ export default function AdminLayout() {
                 end={item.end}
                 onClick={() => setMobileOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                     isActive
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      ? 'bg-primary-500/15 text-primary-200 border border-primary-500/20'
+                      : 'text-surface-300 hover:text-surface-50 hover:bg-surface-700/50'
                   }`
                 }
               >
-                <item.icon size={20} />
+                <item.icon size={18} />
                 <span>{t(item.label)}</span>
               </NavLink>
             ))}
 
-            <a
-              href="/kitchen"
+            <NavLink
+              to="/kitchen"
               target="_blank"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-surface-300 hover:text-surface-50 hover:bg-surface-700/50 transition-all duration-200"
             >
-              <ChefHat size={20} />
+              <ChefHat size={18} />
               <span>{t('nav.kitchen')}</span>
-            </a>
+            </NavLink>
           </nav>
 
-          <div className="p-3 border-t">
+          {/* Sidebar footer */}
+          <div className="p-3 border-t border-surface-700/50 space-y-2">
+            <LanguageSwitcher compact />
             <button
               onClick={handleLogout}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 w-full transition-all"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 w-full transition-all duration-200"
             >
-              <LogOut size={20} />
+              <LogOut size={18} />
               <span>{t('logout')}</span>
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setMobileOpen(false)} />
-      )}
-
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-screen">
-        <header className="bg-white border-b px-4 py-3 flex items-center justify-between lg:hidden">
-          <button onClick={() => setMobileOpen(true)} className="p-2 hover:bg-gray-100 rounded-lg">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <h1 className="font-bold">{business?.nameAr || business?.name || 'RestaurantOS'}</h1>
-          <div />
-        </header>
-
-        <main className="flex-1 p-4 lg:p-6">
+        <main className="flex-1 p-4 lg:p-6 lg:pt-6 pt-20">
           <Outlet />
         </main>
       </div>

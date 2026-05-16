@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  TrendingUp, TrendingDown, ShoppingCart, Table2, CalendarDays,
-  Wifi, DollarSign, Clock, Users, Package, AlertCircle
+  TrendingUp, TrendingDown, ShoppingCart, Table2, DollarSign, Clock,
+  Users, Package, ArrowUpRight, CreditCard, Percent,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import api from '../../services/api'
@@ -10,25 +10,26 @@ import { useAuthStore } from '../../store/authStore'
 import { getSocket } from '../../services/socket'
 import { useTranslation } from 'react-i18next'
 
-const StatCard = ({ title, value, sub, icon: Icon, gradient, trend }: any) => (
-  <div className="relative group rounded-2xl p-5 overflow-hidden animate-fade-in cursor-default transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl">
-    <div className={`absolute inset-0 ${gradient} opacity-90`} />
-    <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+const StatCard = ({ title, value, sub, icon: Icon, trend, color }: any) => (
+  <div className="relative group bg-surface-800 rounded-2xl p-5 border border-surface-600/40 hover:border-primary-500/30 transition-all duration-300 hover:shadow-glow overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
     <div className="relative z-10">
       <div className="flex items-start justify-between mb-3">
-        <div className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
-          <Icon size={20} className="text-white" />
+        <div className={`p-2.5 rounded-xl ${color || 'bg-primary-500/15'}`}>
+          <Icon size={20} className={color ? 'text-white' : 'text-primary-200'} />
         </div>
         {trend !== undefined && (
-          <span className={`text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-full bg-white/20 backdrop-blur-sm ${trend >= 0 ? 'text-white' : 'text-red-200'}`}>
+          <span className={`text-xs font-medium flex items-center gap-1 px-2 py-1 rounded-full ${
+            trend >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'
+          }`}>
             {trend >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
             {Math.abs(trend).toFixed(1)}%
           </span>
         )}
       </div>
-      <div className="text-2xl font-bold text-white drop-shadow-sm">{value}</div>
-      <div className="text-sm text-white/80 mt-0.5">{title}</div>
-      {sub && <div className="text-xs text-white/60 mt-1">{sub}</div>}
+      <div className="text-2xl font-bold text-surface-50">{value}</div>
+      <div className="text-sm text-surface-300 mt-0.5">{title}</div>
+      {sub && <div className="text-xs text-surface-400 mt-1">{sub}</div>}
     </div>
   </div>
 )
@@ -68,7 +69,7 @@ export default function DashboardPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin" />
     </div>
   )
 
@@ -76,60 +77,159 @@ export default function DashboardPage() {
   const o = data?.operations
 
   return (
-    <div className="space-y-6" dir="auto">
+    <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-xl font-bold text-white">{t('dashboard.title')}</h1>
-        <p className="text-slate-400 text-sm mt-0.5">
-          {t('dashboard.subtitle')}
+        <h1 className="text-xl font-bold text-surface-50">{t('dashboard.title')}</h1>
+        <p className="text-surface-400 text-sm mt-1">
+          {t('dashboard.subtitle')} — {new Date().toLocaleDateString('ar-DZ')}
         </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title={t('dashboard.today_revenue')} value={`${(s?.today || 0).toLocaleString('ar-DZ')} ${t('currency')}`} sub={`أمس: ${(s?.yesterday || 0).toLocaleString()}`} icon={DollarSign} gradient="gradient-emerald" trend={s?.growth} />
-        <StatCard title={t('dashboard.today_orders')} value={s?.ordersCount || 0} sub={`متوسط: ${Math.round(s?.avgOrderValue || 0)} ${t('currency')}`} icon={ShoppingCart} gradient="gradient-blue" />
-        <StatCard title={t('dashboard.pending_orders')} value={o?.pendingOrders || 0} sub="بانتظار الإعداد" icon={Clock} gradient={o?.pendingOrders > 5 ? 'gradient-amber' : 'gradient-rose'} />
-        <StatCard title={t('dashboard.active_tables')} value={`${o?.tablesOccupied || 0}/${o?.totalTables || 0}`} sub="مشغولة / إجمالي" icon={Table2} gradient="gradient-purple" />
+        <StatCard
+          title={t('dashboard.today_revenue')}
+          value={`${(s?.today || 0).toLocaleString('ar-DZ')} ${t('currency')}`}
+          sub={`${t('dashboard.yesterday')}: ${(s?.yesterday || 0).toLocaleString('ar-DZ')}`}
+          icon={DollarSign}
+          color="bg-emerald-500/15"
+          trend={s?.growth}
+        />
+        <StatCard
+          title={t('dashboard.today_orders')}
+          value={s?.ordersCount || 0}
+          sub={`${t('dashboard.avg_order')}: ${Math.round(s?.avgOrderValue || 0)} ${t('currency')}`}
+          icon={ShoppingCart}
+          color="bg-blue-500/15"
+        />
+        <StatCard
+          title={t('dashboard.pending_orders')}
+          value={o?.pendingOrders || 0}
+          sub={t('dashboard.awaiting_preparation')}
+          icon={Clock}
+          color={o?.pendingOrders > 5 ? 'bg-amber-500/15' : 'bg-primary-500/15'}
+        />
+        <StatCard
+          title={t('dashboard.active_tables')}
+          value={`${o?.tablesOccupied || 0}/${o?.totalTables || 0}`}
+          sub={t('dashboard.occupied_total')}
+          icon={Table2}
+          color="bg-purple-500/15"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-surface-800 rounded-2xl p-4 border border-surface-600/40 flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-amber-500/15">
+            <Users size={18} className="text-amber-300" />
+          </div>
+          <div>
+            <div className="text-lg font-bold text-surface-50">{o?.totalCustomers || 0}</div>
+            <div className="text-xs text-surface-400">{t('dashboard.total_customers')}</div>
+          </div>
+        </div>
+        <div className="bg-surface-800 rounded-2xl p-4 border border-surface-600/40 flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-500/15">
+            <CreditCard size={18} className="text-emerald-300" />
+          </div>
+          <div>
+            <div className="text-lg font-bold text-surface-50">{s?.paidOrders || 0}</div>
+            <div className="text-xs text-surface-400">{t('dashboard.paid_orders')}</div>
+          </div>
+        </div>
+        <div className="bg-surface-800 rounded-2xl p-4 border border-surface-600/40 flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-500/15">
+            <Package size={18} className="text-blue-300" />
+          </div>
+          <div>
+            <div className="text-lg font-bold text-surface-50">{data?.totalItems || 0}</div>
+            <div className="text-xs text-surface-400">{t('dashboard.menu_items')}</div>
+          </div>
+        </div>
+        <div className="bg-surface-800 rounded-2xl p-4 border border-surface-600/40 flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-primary-500/15">
+            <Percent size={18} className="text-primary-200" />
+          </div>
+          <div>
+            <div className="text-lg font-bold text-surface-50">{o?.occupancyRate || 0}%</div>
+            <div className="text-xs text-surface-400">{t('dashboard.occupancy_rate')}</div>
+          </div>
+        </div>
       </div>
 
       {salesData?.byDay?.length > 0 && (
-        <div className="glass-dark rounded-2xl p-5 animate-fade-in">
-          <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <TrendingUp size={18} className="text-emerald-400" />
-            {t('dashboard.sales_chart')}
-          </h2>
-          <ResponsiveContainer width="100%" height={200}>
+        <div className="bg-surface-800 rounded-2xl p-5 border border-surface-600/40 animate-fade-in">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-surface-50 flex items-center gap-2">
+              <TrendingUp size={18} className="text-primary-200" />
+              {t('dashboard.sales_chart')}
+            </h2>
+            <span className="text-xs text-surface-400 bg-surface-700 px-2.5 py-1 rounded-lg">آخر 7 أيام</span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
             <LineChart data={salesData.byDay}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9' }} />
-              <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={2} dot={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#222a3d" />
+              <XAxis dataKey="date" tick={{ fill: '#6e7180', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#6e7180', fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{
+                  background: '#131b2e',
+                  border: '1px solid #222a3d',
+                  borderRadius: 8,
+                  color: '#dae2fd',
+                }}
+                labelStyle={{ color: '#c3c6d7' }}
+              />
+              <Line type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={2} dot={{ fill: '#2563eb', r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       )}
 
       {data?.recentOrders?.length > 0 && (
-        <div className="glass-dark rounded-2xl p-5 animate-fade-in">
-          <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <Clock size={18} className="text-emerald-400" />
+        <div className="bg-surface-800 rounded-2xl p-5 border border-surface-600/40 animate-fade-in">
+          <h2 className="text-base font-semibold text-surface-50 mb-4 flex items-center gap-2">
+            <Clock size={18} className="text-primary-200" />
             {t('dashboard.recent_orders')}
           </h2>
           <div className="space-y-1">
             {data.recentOrders.slice(0, 8).map((order: any, i: number) => (
-              <div key={order.id} className={`flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-white/5 transition-all duration-200 animate-fade-in`} style={{ animationDelay: `${i * 0.05}s` }}>
+              <div
+                key={order.id}
+                className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-surface-700/50 transition-all duration-200 animate-fade-in"
+                style={{ animationDelay: `${i * 0.05}s` }}
+              >
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-xs font-bold text-white">#{String(order.orderNumber).slice(-3)}</span>
+                  <span className="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center text-xs font-bold text-surface-200">
+                    #{String(order.orderNumber).slice(-3)}
+                  </span>
                   <div>
-                    <span className="text-sm font-medium text-white">{order.customerName || `طاولة ${order.table?.number || '-'}`}</span>
-                    {order.table && <span className="text-xs text-slate-500 mr-2">{t('consumer.table')} {order.table.number}</span>}
+                    <span className="text-sm font-medium text-surface-50">
+                      {order.customerName || `${t('consumer.table')} ${order.table?.number || '-'}`}
+                    </span>
+                    {order.table && (
+                      <span className="text-xs text-surface-400 mr-2">
+                        {t('consumer.table')} {order.table.number}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${order.status === 'DELIVERED' ? 'bg-emerald-900/40 text-emerald-400' : order.status === 'PREPARING' ? 'bg-amber-900/40 text-amber-400' : order.status === 'READY' ? 'bg-blue-900/40 text-blue-400' : order.status === 'CANCELLED' ? 'bg-red-900/40 text-red-400' : 'bg-slate-800 text-slate-400'}`}>
-                    {order.status === 'DELIVERED' ? t('orders.delivered') : order.status === 'PREPARING' ? t('orders.preparing') : order.status === 'READY' ? t('orders.ready') : order.status === 'CANCELLED' ? t('orders.cancelled') : order.status === 'PENDING' ? t('orders.pending') : order.status}
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                    order.status === 'DELIVERED' ? 'bg-emerald-500/15 text-emerald-300' :
+                    order.status === 'PREPARING' ? 'bg-amber-500/15 text-amber-300' :
+                    order.status === 'READY' ? 'bg-blue-500/15 text-blue-300' :
+                    order.status === 'CANCELLED' ? 'bg-red-500/15 text-red-300' :
+                    'bg-surface-600 text-surface-300'
+                  }`}>
+                    {order.status === 'DELIVERED' ? t('orders.delivered') :
+                     order.status === 'PREPARING' ? t('orders.preparing') :
+                     order.status === 'READY' ? t('orders.ready') :
+                     order.status === 'CANCELLED' ? t('orders.cancelled') :
+                     order.status === 'PENDING' ? t('orders.pending') : order.status}
                   </span>
-                  <span className="text-sm text-emerald-400 font-medium">{order.total?.toLocaleString()} {t('currency')}</span>
+                  <span className="text-sm text-emerald-300 font-medium">
+                    {order.total?.toLocaleString()} {t('currency')}
+                  </span>
                 </div>
               </div>
             ))}

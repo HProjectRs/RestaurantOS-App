@@ -37,3 +37,19 @@ yarn-error.log*
 # Temp
 tmp/
 temp/
+
+# Database
+*.db
+server/prisma/*.db
+server/backups/
+
+# Screenshots
+*.png
+client/public/screenshots/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Root artifacts
+code.html
+screen.png
