@@ -21,6 +21,5 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
   }
 
   logger.error('Unhandled error', { error: err.message, stack: err.stack })
-  console.error('DEBUG ERROR:', err)
   res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' })
 }
