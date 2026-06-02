@@ -34,7 +34,7 @@ router.post('/create-intent', authenticate, asyncHandler(async (req: AuthRequest
     if (!stripe) throw new ValidationError('Stripe not configured. Set STRIPE_SECRET_KEY in .env')
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(order.total * 100),
+      amount: Math.round(Number(order.total) * 100),
       currency: 'usd',
       metadata: { orderId, orderNumber: String(order.orderNumber), businessId: req.user!.businessId },
     })

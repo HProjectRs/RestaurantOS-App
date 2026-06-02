@@ -97,16 +97,16 @@ router.get('/orders/:id/print', authenticate, asyncHandler(async (req: AuthReque
     for (const item of order.items) {
       const name = item.menuItem.nameAr || item.menuItem.name
       print += `${name}\n`
-      print += `  x${item.quantity} @ ${item.price.toFixed(2)} ${currency}\n`
-      print += `  ${(item.price * item.quantity).toFixed(2)} ${currency}\n`
+      print += `  x${item.quantity} @ ${Number(item.price).toFixed(2)} ${currency}\n`
+      print += `  ${(Number(item.price) * item.quantity).toFixed(2)} ${currency}\n`
     }
 
     print += `${'-'.repeat(32)}\n`
-    print += `المجموع الفرعي: ${order.subtotal.toFixed(2)} ${currency}\n`
-    print += `الضريبة:        ${order.tax.toFixed(2)} ${currency}\n`
-    if (order.serviceCharge > 0) print += `خدمة:           ${order.serviceCharge.toFixed(2)} ${currency}\n`
+    print += `المجموع الفرعي: ${Number(order.subtotal).toFixed(2)} ${currency}\n`
+    print += `الضريبة:        ${Number(order.tax).toFixed(2)} ${currency}\n`
+    if (Number(order.serviceCharge) > 0) print += `خدمة:           ${Number(order.serviceCharge).toFixed(2)} ${currency}\n`
     print += `${'='.repeat(32)}\n`
-    print += `الإجمالي:       ${order.total.toFixed(2)} ${currency}\n`
+    print += `الإجمالي:       ${Number(order.total).toFixed(2)} ${currency}\n`
     print += `الحالة:         ${order.paymentStatus === 'PAID' ? 'مدفوع' : 'غير مدفوع'}\n`
     print += `${'='.repeat(32)}\n`
     print += `\nشكراً لزيارتكم ${businessName}\n`

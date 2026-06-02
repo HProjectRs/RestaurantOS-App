@@ -131,7 +131,7 @@ router.get('/sales', authenticate, asyncHandler(async (req: AuthRequest, res: Re
 
       if (!grouped[key]) grouped[key] = { count: 0, total: 0, orders: [] }
       grouped[key].count++
-      grouped[key].total += order.total
+      grouped[key].total += Number(order.total)
       grouped[key].orders.push(order.orderNumber)
     }
 
@@ -227,7 +227,7 @@ router.get('/employees', authenticate, asyncHandler(async (req: AuthRequest, res
       name: emp.name,
       role: emp.role,
       orderCount: emp.orders.length,
-      totalSales: emp.orders.reduce((sum, o) => sum + o.total, 0),
+      totalSales: emp.orders.reduce((sum, o) => sum + Number(o.total), 0),
     }))
 
     res.json(employeeData)
@@ -321,7 +321,7 @@ router.get('/peak-hours', authenticate, asyncHandler(async (req: AuthRequest, re
     for (const order of orders) {
       const hour = new Date(order.createdAt).getHours()
       hourly[hour].count++
-      hourly[hour].revenue += order.total
+      hourly[hour].revenue += Number(order.total)
     }
 
     const dow: { day: number; count: number; revenue: number }[] = []
@@ -332,7 +332,7 @@ router.get('/peak-hours', authenticate, asyncHandler(async (req: AuthRequest, re
     for (const order of orders) {
       const day = new Date(order.createdAt).getDay()
       dow[day].count++
-      dow[day].revenue += order.total
+      dow[day].revenue += Number(order.total)
     }
 
     res.json({ hourly, dow })
@@ -366,7 +366,7 @@ router.get('/payment-methods', authenticate, asyncHandler(async (req: AuthReques
       const method = order.paymentMethod || 'UNKNOWN'
       if (!methods[method]) methods[method] = { count: 0, revenue: 0 }
       methods[method].count++
-      methods[method].revenue += order.total
+      methods[method].revenue += Number(order.total)
     }
 
     res.json(methods)

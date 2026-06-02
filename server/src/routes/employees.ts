@@ -141,7 +141,7 @@ router.get('/payroll', authenticate, requireRole('ADMIN'), asyncHandler(async (r
     salary: emp.salary,
     salaryPeriod: emp.salaryPeriod,
     thisMonthOrders: emp.orders.length,
-    thisMonthSales: emp.orders.reduce((s, o) => s + o.total, 0),
+    thisMonthSales: emp.orders.reduce((s, o) => s + Number(o.total), 0),
   }))
 
   res.json(payrollData)

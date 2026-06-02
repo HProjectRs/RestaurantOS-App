@@ -1,6 +1,6 @@
 export interface BusinessSettings {
-  taxRate: number | string | null
-  serviceChargeRate: number | string | null
+  taxRate: unknown
+  serviceChargeRate: unknown
 }
 
 export function calculateOrderCharges(
