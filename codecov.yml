@@ -1,0 +1,33 @@
+codecov:
+  notify:
+    require_ci_to_pass: true
+  branch: main
+
+coverage:
+  precision: 2
+  round: down
+  range: "20..80"
+  status:
+    project:
+      default:
+        target: 20%
+        threshold: 5%
+    patch:
+      default:
+        target: 20%
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: client
+      paths:
+        - client/src/
+    - name: server
+      paths:
+        - server/src/
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false

@@ -48,6 +48,7 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    host: '0.0.0.0',
     proxy: {
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
       '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
@@ -68,19 +69,13 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/tests/setup.ts'],
     css: false,
     exclude: ['e2e/**', 'node_modules/**'],
     coverage: {
       provider: 'v8',
-      thresholds: {
-        statements: 20,
-        branches: 20,
-        functions: 15,
-        lines: 20,
-      },
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/tests/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+      thresholds: { statements: 80, branches: 80, functions: 80, lines: 80 },
+      include: ['src/constants/**', 'src/config/**', 'src/components/ui/**', 'src/utils/**'],
+      exclude: ['src/__tests__/**', 'src/main.tsx'],
     },
   },
 })

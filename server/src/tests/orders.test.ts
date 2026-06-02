@@ -8,6 +8,10 @@ jest.mock('@prisma/client', () => ({
   PrismaClient: jest.fn(),
 }))
 
+jest.mock('../services/printer', () => ({
+  generateReceiptData: jest.fn(() => ({ lines: [] })),
+}))
+
 jest.mock('../middleware/auth', () => ({
   authenticate: jest.fn((req: any, _res: any, next: any) => {
     req.user = { userId: 'user-1', businessId: 'biz-1', role: 'ADMIN', name: 'Admin' }
@@ -35,6 +39,8 @@ app.use(express.json())
 app.set('prisma', prisma)
 app.set('io', mockIo)
 app.use('/api/orders', orderRoutes)
+import { errorHandler } from '../middleware/errorHandler'
+app.use(errorHandler)
 
 beforeEach(() => {
   mockReset(prisma)
@@ -96,18 +102,24 @@ describe('Order Routes', () => {
 
   describe('POST /api/orders', () => {
     it('should create an order and return 201', async () => {
-      ;(prisma.menuItem.findUnique as jest.Mock).mockResolvedValue(mockMenuItem)
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([mockMenuItem])
       ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
-      ;(prisma.order.create as jest.Mock).mockImplementation(({ data, include }: any) =>
-        Promise.resolve({
-          ...mockOrder,
-          id: 'new-order',
-          orderNumber: 1002,
-          type: data.type,
-          items: [],
-          table: null,
-        })
-      )
+      const mockTx = {
+        order: {
+          create: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            id: 'new-order',
+            orderNumber: 1002,
+            items: [],
+            table: null,
+          }),
+          update: jest.fn().mockResolvedValue({ ...mockOrder }),
+        },
+        table: {
+          update: jest.fn().mockResolvedValue({}),
+        },
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app)
         .post('/api/orders')
@@ -133,7 +145,7 @@ describe('Order Routes', () => {
     })
 
     it('should return 400 when item is not available', async () => {
-      ;(prisma.menuItem.findUnique as jest.Mock).mockResolvedValue({ ...mockMenuItem, isAvailable: false })
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([{ ...mockMenuItem, isAvailable: false }])
 
       const res = await request(app)
         .post('/api/orders')
@@ -146,16 +158,25 @@ describe('Order Routes', () => {
     })
 
     it('should update table status to OCCUPIED when tableId is provided', async () => {
-      ;(prisma.menuItem.findUnique as jest.Mock).mockResolvedValue(mockMenuItem)
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([mockMenuItem])
       ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
-      ;(prisma.order.create as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        id: 'new-order',
-        tableId: 'table-1',
-        items: [],
-        table: null,
-      })
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' })
+      ;(prisma.table.findUnique as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'AVAILABLE', version: 1 })
+      const mockTx = {
+        order: {
+          create: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            id: 'new-order',
+            orderNumber: 1002,
+            tableId: 'table-1',
+            items: [],
+            table: null,
+          }),
+        },
+        table: {
+          update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' }),
+        },
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app)
         .post('/api/orders')
@@ -167,12 +188,29 @@ describe('Order Routes', () => {
         })
 
       expect(res.status).toBe(201)
-      expect(prisma.table.update).toHaveBeenCalledWith(
+      expect(mockTx.table.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'table-1' },
+          where: { id: 'table-1', status: 'AVAILABLE' },
           data: { status: 'OCCUPIED' },
         })
       )
+    })
+
+    it('should return 409 when table is already occupied', async () => {
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([mockMenuItem])
+      ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
+      ;(prisma.table.findUnique as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' })
+
+      const res = await request(app)
+        .post('/api/orders')
+        .send({
+          businessId: 'biz-1',
+          tableId: 'table-1',
+          items: [{ menuItemId: 'item-1', quantity: 1 }],
+        })
+
+      expect(res.status).toBe(409)
+      expect(res.body.error).toMatch(/occupied/i)
     })
   })
 
@@ -184,6 +222,21 @@ describe('Order Routes', () => {
 
       expect(res.status).toBe(200)
       expect(Array.isArray(res.body)).toBe(true)
+    })
+
+    it('should filter orders by date range', async () => {
+      ;(prisma.order.findMany as jest.Mock).mockResolvedValue([mockOrder])
+
+      const res = await request(app).get('/api/orders?dateFrom=2024-01-01&dateTo=2024-12-31')
+
+      expect(res.status).toBe(200)
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: expect.objectContaining({ gte: expect.any(Date), lte: expect.any(Date) }),
+          }),
+        })
+      )
     })
 
     it('should filter orders by status', async () => {
@@ -220,13 +273,12 @@ describe('Order Routes', () => {
 
   describe('PATCH /api/orders/:id/status', () => {
     it('should update order status', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        id: 'order-1',
-        status: 'PREPARING',
-        items: [],
-        table: null,
-      })
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, id: 'order-1', status: 'PREPARING', items: [], table: null }) },
+        orderItem: {} as any,
+        table: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app)
         .patch('/api/orders/order-1/status')
@@ -237,16 +289,15 @@ describe('Order Routes', () => {
     })
 
     it('should free the table when status is DELIVERED with no remaining active orders', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        id: 'order-1',
-        tableId: 'table-1',
-        status: 'DELIVERED',
-        items: [],
-        table: null,
-      })
-      ;(prisma.order.count as jest.Mock).mockResolvedValue(0)
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' })
+      const mockTx = {
+        order: {
+          update: jest.fn().mockResolvedValue({ ...mockOrder, id: 'order-1', tableId: 'table-1', status: 'DELIVERED', items: [], table: null }),
+          count: jest.fn().mockResolvedValue(0),
+        },
+        table: { update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' }) },
+        orderItem: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app)
         .patch('/api/orders/order-1/status')
@@ -280,15 +331,13 @@ describe('Order Routes', () => {
 
   describe('PATCH /api/orders/:id/payment', () => {
     it('should update payment status', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        paymentStatus: 'PAID',
-        paymentMethod: 'CASH',
-        items: [],
-        table: null,
-      })
-      ;(prisma.order.count as jest.Mock).mockResolvedValue(0)
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' })
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, paymentStatus: 'PAID', paymentMethod: 'CASH', items: [], table: null }) },
+        table: { update: jest.fn() },
+        orderItem: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
+      ;(mockTx.order.count as unknown as jest.Mock) = jest.fn().mockResolvedValue(0)
 
       const res = await request(app)
         .patch('/api/orders/order-1/payment')
@@ -297,16 +346,46 @@ describe('Order Routes', () => {
       expect(res.status).toBe(200)
       expect(res.body.paymentStatus).toBe('PAID')
     })
+
+    it('should free table when paid and no active orders remain', async () => {
+      const paidWithTable = {
+        ...mockOrder,
+        tableId: 'table-1',
+        paymentStatus: 'PAID',
+        paymentMethod: 'CASH',
+        items: [],
+        table: null,
+      }
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue(paidWithTable) },
+        table: { update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' }) },
+        orderItem: {} as any,
+      }
+      mockTx.order.count = jest.fn().mockResolvedValue(0)
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
+
+      const res = await request(app)
+        .patch('/api/orders/order-1/payment')
+        .send({ paymentStatus: 'PAID', paymentMethod: 'CASH' })
+
+      expect(res.status).toBe(200)
+      expect(mockTx.table.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'table-1' },
+          data: { status: 'AVAILABLE' },
+        })
+      )
+    })
   })
 
   describe('PATCH /api/orders/:id/cancel', () => {
     it('should cancel an order', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        status: 'CANCELLED',
-        items: [],
-        table: null,
-      })
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, status: 'CANCELLED', items: [], table: null }) },
+        table: { update: jest.fn() },
+        orderItem: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app).patch('/api/orders/order-1/cancel')
 
@@ -315,19 +394,16 @@ describe('Order Routes', () => {
     })
 
     it('should free the table when cancelling a dine-in order with table', async () => {
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        tableId: 'table-1',
-        status: 'CANCELLED',
-        items: [],
-        table: null,
-      })
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' })
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, tableId: 'table-1', status: 'CANCELLED', items: [], table: null }) },
+        table: { update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'AVAILABLE' }) },
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app).patch('/api/orders/order-1/cancel')
 
       expect(res.status).toBe(200)
-      expect(prisma.table.update).toHaveBeenCalledWith(
+      expect(mockTx.table.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'table-1' },
           data: { status: 'AVAILABLE' },
@@ -385,9 +461,17 @@ describe('Order Routes', () => {
       expect(res.body).toHaveProperty('id', 'order-1')
     })
 
-    it('should return 404 when tableId or businessId is missing (catches /:id first)', async () => {
+    it('should return 400 when tableId or businessId is missing', async () => {
       const res = await request(app).get('/api/orders/active')
-      expect(res.status).toBe(404)
+      expect(res.status).toBe(400)
+      expect(res.body.error).toBe('tableId and businessId required')
+    })
+    it('should return null when no active order found', async () => {
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue(null)
+
+      const res = await request(app).get('/api/orders/active?tableId=table-1&businessId=biz-1')
+      expect(res.status).toBe(200)
+      expect(res.body).toBeNull()
     })
   })
 
@@ -397,14 +481,16 @@ describe('Order Routes', () => {
         ...mockOrder,
         table: null,
       })
-      ;(prisma.menuItem.findUnique as jest.Mock).mockResolvedValue(mockMenuItem)
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([mockMenuItem])
       ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
-      ;(prisma.order.update as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        items: [{ id: 'oi-2', menuItem: mockMenuItem }],
-        table: null,
-      })
-      ;(prisma.table.update as jest.Mock).mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' })
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, items: [{ id: 'oi-2', menuItem: mockMenuItem }], table: null }) },
+        table: { update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' }) },
+        orderItem: {} as any,
+        menuItem: {} as any,
+        business: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
 
       const res = await request(app)
         .post('/api/orders/order-1/items')
@@ -436,6 +522,59 @@ describe('Order Routes', () => {
 
       expect(res.status).toBe(400)
     })
+
+    it('should return 400 when menu item is not available', async () => {
+      ;(prisma.order.findUnique as jest.Mock).mockResolvedValueOnce({ ...mockOrder, table: null })
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([{ ...mockMenuItem, isAvailable: false }])
+
+      const res = await request(app)
+        .post('/api/orders/order-1/items')
+        .send({ items: [{ menuItemId: 'item-1', quantity: 1 }] })
+
+      expect(res.status).toBe(400)
+    })
+
+    it('should update table to OCCUPIED when order has tableId', async () => {
+      ;(prisma.order.findUnique as jest.Mock).mockResolvedValueOnce({ ...mockOrder, tableId: 'table-1', table: { id: 'table-1', number: '5' } })
+      ;(prisma.menuItem.findMany as jest.Mock).mockResolvedValue([mockMenuItem])
+      ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
+      const mockTx = {
+        order: { update: jest.fn().mockResolvedValue({ ...mockOrder, tableId: 'table-1', items: [{ menuItem: mockMenuItem }], table: null }) },
+        table: { update: jest.fn().mockResolvedValue({ id: 'table-1', status: 'OCCUPIED' }) },
+        orderItem: {} as any,
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
+
+      const res = await request(app)
+        .post('/api/orders/order-1/items')
+        .send({ items: [{ menuItemId: 'item-1', quantity: 1 }] })
+
+      expect(res.status).toBe(200)
+      expect(mockTx.table.update).toHaveBeenCalled()
+    })
+  })
+
+  describe('GET /api/orders/:id/receipt', () => {
+    it('should return receipt data', async () => {
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue({
+        ...mockOrder,
+        items: [{ id: 'oi-1', menuItem: mockMenuItem, price: 12, quantity: 2 }],
+        table: null,
+      })
+      ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
+
+      const res = await request(app).get('/api/orders/order-1/receipt')
+
+      expect(res.status).toBe(200)
+    })
+
+    it('should return 404 when order not found', async () => {
+      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue(null)
+
+      const res = await request(app).get('/api/orders/nonexistent/receipt')
+
+      expect(res.status).toBe(404)
+    })
   })
 
   describe('GET /api/orders/customer/:phone', () => {
@@ -451,24 +590,70 @@ describe('Order Routes', () => {
 
   describe('POST /api/orders/:id/split', () => {
     it('should split order items into new orders', async () => {
-      ;(prisma.order.findFirst as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        paymentStatus: 'UNPAID',
-        items: [{ id: 'oi-1', menuItemId: 'item-1', price: 12, quantity: 2, menuItem: mockMenuItem }],
-        table: { id: 'table-1', number: '5' },
-      })
-      ;(prisma.business.findUnique as jest.Mock).mockResolvedValue(mockSettings)
-      ;(prisma.order.create as jest.Mock).mockImplementation(({ data }: any) =>
-        Promise.resolve({ id: 'split-order-1', ...data, items: [], table: null })
-      )
-      ;(prisma.orderItem.updateMany as jest.Mock).mockResolvedValue({ count: 1 })
-      ;(prisma.order.findUnique as jest.Mock).mockResolvedValue({
-        ...mockOrder,
-        id: 'split-order-1',
-        items: [{ id: 'oi-1', menuItem: mockMenuItem }],
-        table: null,
-      })
-      ;(prisma.order.update as jest.Mock).mockResolvedValue(mockOrder)
+      const mockTx = {
+        order: {
+          findFirst: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            paymentStatus: 'UNPAID',
+            items: [{ id: 'oi-1', menuItemId: 'item-1', price: 12, quantity: 2, menuItem: mockMenuItem }],
+            table: { id: 'table-1', number: '5' },
+          }),
+          create: jest.fn().mockImplementation(({ data }: any) =>
+            Promise.resolve({ id: 'split-order-1', ...data, items: [], table: null })
+          ),
+          findUnique: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            id: 'split-order-1',
+            items: [{ id: 'oi-1', menuItem: mockMenuItem }],
+            table: null,
+          }),
+          update: jest.fn().mockResolvedValue(mockOrder),
+          delete: jest.fn().mockResolvedValue({}),
+        },
+        orderItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        business: { findUnique: jest.fn().mockResolvedValue(mockSettings) },
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
+      ;(prisma.order.findUnique as jest.Mock).mockResolvedValue({ ...mockOrder, items: [], table: null })
+
+      const res = await request(app)
+        .post('/api/orders/order-1/split')
+        .send({ splits: [{ items: ['oi-1'] }] })
+
+      expect(res.status).toBe(200)
+      expect(res.body).toHaveProperty('original')
+      expect(res.body).toHaveProperty('splits')
+    })
+
+    it('should recalculate totals when not all items are split', async () => {
+      const mockTx = {
+        order: {
+          findFirst: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            paymentStatus: 'UNPAID',
+            items: [
+              { id: 'oi-1', menuItemId: 'item-1', price: 12, quantity: 2, menuItem: mockMenuItem },
+              { id: 'oi-2', menuItemId: 'item-1', price: 12, quantity: 1, menuItem: mockMenuItem },
+            ],
+            table: { id: 'table-1', number: '5' },
+          }),
+          create: jest.fn().mockImplementation(({ data }: any) =>
+            Promise.resolve({ id: 'split-order-1', ...data, items: [], table: null })
+          ),
+          findUnique: jest.fn().mockResolvedValue({
+            ...mockOrder,
+            id: 'split-order-1',
+            items: [{ id: 'oi-1', menuItem: mockMenuItem }],
+            table: null,
+          }),
+          update: jest.fn().mockResolvedValue(mockOrder),
+          delete: jest.fn(),
+        },
+        orderItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), deleteMany: jest.fn() },
+        business: { findUnique: jest.fn().mockResolvedValue(mockSettings) },
+      }
+      ;(prisma.$transaction as jest.Mock).mockImplementation(async (cb: any) => cb(mockTx))
+      ;(prisma.order.findUnique as jest.Mock).mockResolvedValue({ ...mockOrder, items: [{ id: 'oi-2', menuItem: mockMenuItem }], table: null })
 
       const res = await request(app)
         .post('/api/orders/order-1/split')

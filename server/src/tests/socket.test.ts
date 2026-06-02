@@ -3,22 +3,28 @@ import { PrismaClient } from '@prisma/client'
 import { mockDeep } from 'jest-mock-extended'
 import { setupSocketHandlers } from '../sockets'
 
+jest.useFakeTimers()
+
 describe('Socket Handlers', () => {
   let io: any
   let socket: any
   let prisma: any
+  let redis: any
   let useMiddleware: any
   let connectionHandler: any
   let mockEmit: jest.Mock
   let mockToEmit: jest.Mock
+  let mockToDisconnect: jest.Mock
 
   beforeEach(() => {
     mockEmit = jest.fn()
     mockToEmit = jest.fn()
+    mockToDisconnect = jest.fn()
     io = {
       use: jest.fn(),
       on: jest.fn(),
-      to: jest.fn().mockReturnValue({ emit: mockEmit }),
+      to: jest.fn().mockReturnValue({ emit: mockEmit, disconnectSockets: mockToDisconnect }),
+      sockets: { sockets: new Map() },
     }
 
     socket = {
@@ -28,14 +34,24 @@ describe('Socket Handlers', () => {
       join: jest.fn(),
       emit: jest.fn(),
       to: jest.fn().mockReturnValue({ emit: mockToEmit }),
+      disconnect: jest.fn(),
+      removeAllListeners: jest.fn(),
       userId: undefined,
       businessId: undefined,
       role: undefined,
     }
 
     prisma = mockDeep<PrismaClient>()
+    redis = {
+      sAdd: jest.fn().mockResolvedValue(1),
+      sCard: jest.fn().mockResolvedValue(1),
+      sMembers: jest.fn().mockResolvedValue(['socket-1']),
+      sRem: jest.fn().mockResolvedValue(1),
+      del: jest.fn().mockResolvedValue(1),
+      keys: jest.fn().mockResolvedValue([]),
+    }
 
-    setupSocketHandlers(io, prisma)
+    setupSocketHandlers(io, prisma, redis)
 
     useMiddleware = io.use.mock.calls[0][0]
     connectionHandler = io.on.mock.calls.find((c: any[]) => c[0] === 'connection')[1]
@@ -193,8 +209,6 @@ describe('Socket Handlers', () => {
 
     describe('table:callService event', () => {
       it('should emit service called event to the business room', () => {
-        ;(prisma.table as any) = undefined
-
         const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'table:callService')[1]
         handler({ tableId: 'table-1', message: 'Water please' })
 
@@ -223,10 +237,123 @@ describe('Socket Handlers', () => {
     })
 
     describe('disconnect event', () => {
-      it('should log disconnect and allow cleanup', () => {
+      it('should remove socket from redis and clean up if last connection', async () => {
         const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'disconnect')[1]
-        expect(() => handler()).not.toThrow()
+        redis.sCard.mockResolvedValue(0)
+        
+        await handler('transport close')
+        
+        expect(redis.sRem).toHaveBeenCalledWith(`user:socket-1:sockets`, 'socket-1')
+        expect(redis.del).toHaveBeenCalledWith(`user:socket-1:sockets`)
+      })
+
+      it('should remove socket from redis but not delete key if other connections exist', async () => {
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'disconnect')[1]
+        redis.sCard.mockResolvedValue(2)
+        
+        await handler('transport close')
+        
+        expect(redis.sRem).toHaveBeenCalledWith(`user:socket-1:sockets`, 'socket-1')
+        expect(redis.del).not.toHaveBeenCalled()
       })
     })
+
+    describe('error event', () => {
+      it('should disconnect socket on error', () => {
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'error')[1]
+        handler(new Error('Socket error'))
+        expect(socket.disconnect).toHaveBeenCalledWith(true)
+      })
+    })
+
+    it('should disconnect oldest socket when connection limit is exceeded', async () => {
+      redis.sCard.mockResolvedValue(6) // Exceeds MAX_SOCKETS_PER_USER (5)
+      redis.sMembers.mockResolvedValue(['socket-old', 'socket-1', 'socket-2', 'socket-3', 'socket-4', 'socket-5'])
+      
+      await connectionHandler(socket)
+      
+      expect(io.to).toHaveBeenCalledWith('socket-old')
+      expect(mockToDisconnect).toHaveBeenCalledWith(true)
+    })
+
+    describe('remaining events', () => {
+      it('should handle order:new event', async () => {
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'order:new')[1]
+        const data = { id: 'order-1', total: 100 }
+        await handler(data)
+        expect(socket.to).toHaveBeenCalledWith('business:biz-1')
+        expect(mockToEmit).toHaveBeenCalledWith('order:incoming', data)
+      })
+
+      it('should handle order:update event', async () => {
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'order:update')[1]
+        const data = { id: 'order-1', status: 'READY' }
+        await handler(data)
+        expect(socket.to).toHaveBeenCalledWith('business:biz-1')
+        expect(mockToEmit).toHaveBeenCalledWith('order:updated', data)
+      })
+
+      it('should handle order:new failure', async () => {
+        socket.to.mockReturnValue({ emit: jest.fn().mockImplementation(() => { throw new Error('Emit failed') }) })
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'order:new')[1]
+        await handler({ id: 'order-1' })
+        expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Failed to broadcast order' })
+      })
+
+      it('should handle order:update failure', async () => {
+        socket.to.mockReturnValue({ emit: jest.fn().mockImplementation(() => { throw new Error('Emit failed') }) })
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'order:update')[1]
+        await handler({ id: 'order-1' })
+        // التحقق من عدم حدوث انهيار للنظام
+      })
+
+      it('should handle chat:message event', () => {
+        const handler = socket.on.mock.calls.find((c: any[]) => c[0] === 'chat:message')[1]
+        const data = { message: 'Hello', to: 'user-2' }
+        handler(data)
+        expect(io.to).toHaveBeenCalledWith('user-2')
+        expect(mockEmit).toHaveBeenCalledWith('chat:received', expect.objectContaining({
+          from: 'socket-1',
+          message: 'Hello'
+        }))
+      })
+    })
+  })
+})
+
+describe('Background Tasks', () => {
+  let io: any
+  let prisma: any
+  let redis: any
+
+  beforeEach(() => {
+    io = {
+      on: jest.fn(),
+      use: jest.fn(),
+      to: jest.fn().mockReturnValue({ emit: jest.fn() }),
+    }
+    prisma = mockDeep<PrismaClient>()
+    redis = {
+      keys: jest.fn().mockResolvedValue(['user:1:sockets', 'user:2:sockets']),
+      sCard: jest.fn().mockResolvedValue(1),
+    }
+    setupSocketHandlers(io, prisma, redis)
+  })
+
+  it('should clean up expired wifi sessions', async () => {
+    jest.advanceTimersByTime(60000)
+    expect(prisma.wifiSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'ACTIVE' }),
+        data: { status: 'EXPIRED' },
+      })
+    )
+  })
+
+  it('should report socket stats', async () => {
+    jest.advanceTimersByTime(30000)
+    await Promise.resolve() // الانتظار حتى تنتهي المهام غير المتزامنة في الـ interval
+    expect(redis.keys).toHaveBeenCalledWith('user:*:sockets')
+    expect(redis.sCard).toHaveBeenCalled()
   })
 })

@@ -1,13 +1,16 @@
 import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { authenticate, requireRole } from '../middleware/auth'
+import { validate } from '../middleware/validate'
+import { loyaltyProgramUpdateSchema, loyaltyCustomerCreateSchema, loyaltyPointsAddSchema, loyaltyPointsRedeemSchema } from '../schemas'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ValidationError, ConflictError } from '../errors'
 
 const router = Router()
 
 // Get loyalty program settings for business
-router.get('/program', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/program', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     let program = await prisma.loyaltyProgram.findFirst({
       where: { businessId: req.user!.businessId },
@@ -18,53 +21,42 @@ router.get('/program', authenticate, async (req: AuthRequest, res: Response) => 
       })
     }
     res.json(program)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Update loyalty program settings
-router.put('/program', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
-  try {
+router.put('/program', authenticate, requireRole('ADMIN'), validate(loyaltyProgramUpdateSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
+    const { name, pointsPerDinar, dinarPerPoint, minPointsRedeem, enabled } = req.body
     const program = await prisma.loyaltyProgram.upsert({
       where: { id: req.body.id || '' },
-      create: { businessId: req.user!.businessId, ...req.body },
-      update: req.body,
+      create: { name, pointsPerDinar, dinarPerPoint, minPointsRedeem, enabled, businessId: req.user!.businessId },
+      update: { name, pointsPerDinar, dinarPerPoint, minPointsRedeem, enabled },
     })
     res.json(program)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Find customer by phone
-router.get('/customers/search', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/customers/search', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { phone } = req.query
-    if (!phone) return res.status(400).json({ error: 'Phone required' })
+    if (!phone) throw new ValidationError('Phone required')
 
     const customer = await prisma.loyaltyCustomer.findFirst({
       where: { businessId: req.user!.businessId, phone: phone as string },
       include: { transactions: { orderBy: { createdAt: 'desc' }, take: 20 } },
     })
     res.json(customer)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Register or find loyalty customer
-router.post('/customers', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/customers', authenticate, validate(loyaltyCustomerCreateSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { phone, name } = req.body
 
     const program = await prisma.loyaltyProgram.findFirst({
       where: { businessId: req.user!.businessId },
     })
-    if (!program) return res.status(400).json({ error: 'Loyalty program not configured' })
+    if (!program) throw new ValidationError('Loyalty program not configured')
 
     let customer = await prisma.loyaltyCustomer.findFirst({
       where: { businessId: req.user!.businessId, phone },
@@ -79,14 +71,10 @@ router.post('/customers', authenticate, async (req: AuthRequest, res: Response) 
     }
 
     res.json(customer)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Add points (call this when order is paid)
-router.post('/points/add', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/points/add', authenticate, validate(loyaltyPointsAddSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { customerId, points, orderId, description } = req.body
 
@@ -111,20 +99,16 @@ router.post('/points/add', authenticate, async (req: AuthRequest, res: Response)
     })
 
     res.json(transaction)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Redeem points
-router.post('/points/redeem', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/points/redeem', authenticate, validate(loyaltyPointsRedeemSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { customerId, points, description } = req.body
 
     const customer = await prisma.loyaltyCustomer.findUnique({ where: { id: customerId } })
-    if (!customer) return res.status(404).json({ error: 'Customer not found' })
-    if (customer.totalPoints < points) return res.status(400).json({ error: 'Insufficient points' })
+    if (!customer) throw new NotFoundError('Customer')
+    if (customer.totalPoints < points) throw new ValidationError('Insufficient points')
 
     const transaction = await prisma.loyaltyTransaction.create({
       data: {
@@ -142,14 +126,10 @@ router.post('/points/redeem', authenticate, async (req: AuthRequest, res: Respon
     })
 
     res.json(transaction)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Get all loyalty customers
-router.get('/customers', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/customers', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const customers = await prisma.loyaltyCustomer.findMany({
       where: { businessId: req.user!.businessId },
@@ -157,9 +137,6 @@ router.get('/customers', authenticate, async (req: AuthRequest, res: Response) =
       orderBy: { totalPoints: 'desc' },
     })
     res.json(customers)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 export default router

@@ -1,61 +1,47 @@
 import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { authenticate, requireRole } from '../middleware/auth'
+import { validate } from '../middleware/validate'
+import { settingsSchema } from '../schemas'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError } from '../errors'
 
 const router = Router()
 
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const settings = await prisma.business.findUnique({
-      where: { id: req.user!.businessId },
-    })
-    res.json(settings)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.get('/', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const settings = await prisma.business.findUnique({
+    where: { id: req.user!.businessId },
+  })
+  res.json(settings)
+}))
 
-// Public: Get first available business (for demo)
-router.get('/public', async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const business = await prisma.business.findFirst()
-    if (!business) return res.status(404).json({ error: 'No business found' })
-    res.json({ id: business.id, name: business.name, nameAr: business.nameAr, logo: business.logo, currency: business.currency })
-  } catch (error) {
-    console.error('Public settings error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.get('/public', asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const business = await prisma.business.findFirst()
+  if (!business) throw new NotFoundError('Business')
+  res.json({ id: business.id, name: business.name, nameAr: business.nameAr, logo: business.logo, currency: business.currency })
+}))
 
-// Public: Get business info by ID
-router.get('/public/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const business = await prisma.business.findUnique({
-      where: { id: req.params.id },
-      select: { id: true, name: true, nameAr: true, logo: true, currency: true },
-    })
-    if (!business) return res.status(404).json({ error: 'Business not found' })
-    res.json(business)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.get('/public/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const business = await prisma.business.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, name: true, nameAr: true, logo: true, currency: true },
+  })
+  if (!business) throw new NotFoundError('Business')
+  res.json(business)
+}))
 
-router.put('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const settings = await prisma.business.update({
-      where: { id: req.user!.businessId },
-      data: req.body,
-    })
-    res.json(settings)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.put('/', authenticate, requireRole('ADMIN'), validate(settingsSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const { name, nameAr, logo, taxRate, serviceChargeRate, currency, wifiDuration, wifiVoucherEnabled, autoPrintOrders, kitchenDisplayEnabled } = req.body
+  const settings = await prisma.business.update({
+    where: { id: req.user!.businessId },
+    data: { name, nameAr, logo, taxRate, serviceChargeRate, currency, wifiDuration, wifiVoucherEnabled, autoPrintOrders, kitchenDisplayEnabled },
+  })
+  res.json(settings)
+}))
 
 export default router

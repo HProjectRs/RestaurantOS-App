@@ -234,3 +234,62 @@ jobs:
           name: playwright-report
           path: client/playwright-report/
           retention-days: 7
+
+  load-test:
+    name: Load Test (Smoke)
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: restaurantos_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+      - name: Install k6
+        run: |
+          sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: server
+      - name: Push database schema
+        run: npx prisma db push
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/restaurantos_test
+      - name: Start server
+        run: |
+          npm run build && node dist/index.js &
+          sleep 5
+          curl -f http://localhost:3001/api/health || exit 1
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/restaurantos_test
+          JWT_SECRET: test-jwt-secret-for-ci
+          REFRESH_SECRET: test-refresh-secret-for-ci
+          NODE_ENV: test
+          PORT: 3001
+      - name: Run k6 smoke test
+        run: k6 run tests/load/smoke-test.js
+        env:
+          BASE_URL: http://localhost:3001

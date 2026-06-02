@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -12,8 +12,8 @@ model Business {
   name              String
   nameAr            String?
   logo              String?
-  taxRate           Float    @default(15.0)
-  serviceChargeRate Float    @default(10.0)
+  taxRate           Decimal    @default(15.0)
+  serviceChargeRate Decimal    @default(10.0)
   currency          String   @default("SAR")
   wifiDuration      Int      @default(120)
   wifiVoucherEnabled Boolean @default(true)
@@ -71,8 +71,8 @@ model MenuItem {
   nameAr        String?
   description   String?
   descriptionAr String?
-  price         Float
-  discountPrice Float?
+  price         Decimal
+  discountPrice Decimal?
   image         String?
   barcode       String?
   isAvailable   Boolean         @default(true)
@@ -115,6 +115,7 @@ model Table {
   number    String
   capacity  Int          @default(4)
   status    String       @default("AVAILABLE") // AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE
+  version   Int          @default(1) @map("_version")
   qrCode    String?
   isActive  Boolean      @default(true)
   createdAt DateTime     @default(now())
@@ -124,30 +125,96 @@ model Table {
 }
 
 model Order {
-  id            String      @id @default(uuid())
-  businessId    String
-  orderNumber   Int
-  tableId       String?
-  table         Table?      @relation(fields: [tableId], references: [id])
-  cashierId     String?
-  cashier       User?       @relation("CashierOrders", fields: [cashierId], references: [id])
-  customerName  String?
-  customerPhone String?
-  customerEmail String?
-  type          String      @default("DINE_IN") // DINE_IN, TAKEAWAY, DELIVERY, ONLINE
-  status        String      @default("PENDING") // PENDING, CONFIRMED, PREPARING, READY, DELIVERED, CANCELLED
-  paymentStatus String      @default("UNPAID") // UNPAID, PAID, REFUNDED, PARTIAL
-  paymentMethod String?     // CASH, CARD, WALLET, BANK_TRANSFER
-  subtotal      Float       @default(0)
-  tax           Float       @default(0)
-  serviceCharge Float       @default(0)
-  discount      Float       @default(0)
-  total         Float       @default(0)
-  notes         String?
-  isOnlineOrder Boolean     @default(false)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  items         OrderItem[]
+  id                      String         @id @default(uuid())
+  businessId              String
+  orderNumber             Int
+  tableId                 String?
+  table                   Table?         @relation(fields: [tableId], references: [id])
+  cashierId               String?
+  cashier                 User?          @relation("CashierOrders", fields: [cashierId], references: [id])
+  customerName            String?
+  customerPhone           String?
+  customerEmail           String?
+  type                    String         @default("DINE_IN") // DINE_IN, TAKEAWAY, DELIVERY, ONLINE
+  status                  String         @default("PENDING") // PENDING, CONFIRMED, PREPARING, READY, DELIVERED, CANCELLED
+  paymentStatus           String         @default("UNPAID") // UNPAID, PAID, REFUNDED, PARTIAL
+  paymentMethod           String?        // CASH, CARD, WALLET, BANK_TRANSFER
+  subtotal                Decimal          @default(0)
+  tax                     Decimal          @default(0)
+  serviceCharge           Decimal          @default(0)
+  discount                Decimal          @default(0)
+  discountAmount          Decimal?
+  total                   Decimal          @default(0)
+
+  notes                   String?
+  isOnlineOrder           Boolean        @default(false)
+  stripePaymentIntentId   String?        @unique
+  paidAt                  DateTime?
+  paymentFailureReason    String?
+  version                 Int            @default(1) @map("_version")
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  items                   OrderItem[]
+  payments                Payment[]
+  statusLogs              OrderStatusLog[]
+  webhookLogs             WebhookLog[]
+  delivery                Delivery?
+
+  @@index([businessId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([stripePaymentIntentId])
+  @@index([createdAt])
+}
+
+model OrderStatusLog {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  status    String
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([timestamp])
+}
+
+model Payment {
+  id                      String    @id @default(uuid())
+  orderId                 String
+  order                   Order     @relation(fields: [orderId], references: [id])
+  stripePaymentIntentId   String?   @unique
+  stripeChargeId          String?   @unique
+  amount                  Decimal
+  currency                String    @default("USD")
+  status                  String    @default("PENDING") // PENDING, SUCCEEDED, FAILED, REFUNDED
+  method                  String    // STRIPE, CASH, CARD
+  refundAmount            Float?
+  refundedAt              DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([orderId])
+  @@index([stripePaymentIntentId])
+  @@index([status])
+}
+
+model WebhookLog {
+  id              String    @id @default(uuid())
+  stripeEventId   String    @unique
+  type            String
+  status          String    @default("PENDING") // PENDING, PROCESSING, PROCESSED, FAILED
+  data            Json?
+  error           String?
+  orderId         String?
+  order           Order?    @relation(fields: [orderId], references: [id])
+  processedAt     DateTime?
+  failedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([stripeEventId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model OrderItem {
@@ -224,7 +291,7 @@ model Expense {
   id          String   @id @default(uuid())
   businessId  String
   description String
-  amount      Float
+  amount      Decimal
   category    String   @default("أخرى")
   date        DateTime @default(now())
   notes       String?
@@ -261,6 +328,27 @@ model License {
   updatedAt   DateTime @updatedAt
 }
 
+model Subscription {
+  id                    String    @id @default(uuid())
+  businessId            String    @unique
+  stripeCustomerId      String?   @unique
+  stripeSubscriptionId  String?   @unique
+  plan                  String    @default("FREE") // FREE, BASIC, PRO, ENTERPRISE
+  status                String    @default("ACTIVE") // ACTIVE, PAST_DUE, CANCELED, EXPIRED, TRIALING
+  trialEndsAt           DateTime?
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  canceledAt            DateTime?
+  maxUsers              Int       @default(1)
+  maxBranches           Int       @default(1)
+  features              Json?     // feature flags JSON
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([status])
+  @@index([plan])
+}
+
 model BackupLog {
   id          String   @id @default(uuid())
   businessId  String?
@@ -275,8 +363,8 @@ model LoyaltyProgram {
   id                String   @id @default(uuid())
   businessId        String
   name              String   @default("برنامج الولاء")
-  pointsPerDinar    Float    @default(1.0) // points earned per 1 DZD spent
-  dinarPerPoint     Float    @default(10.0) // DZD value per point for redemption
+  pointsPerDinar    Decimal   @default(1.0) // points earned per 1 DZD spent
+  dinarPerPoint     Decimal   @default(10.0) // DZD value per point for redemption
   minPointsRedeem   Int      @default(100)
   enabled           Boolean  @default(true)
   createdAt         DateTime @default(now())
@@ -292,7 +380,7 @@ model LoyaltyCustomer {
   phone           String
   name            String?
   totalPoints     Int            @default(0)
-  totalSpent      Float          @default(0)
+  totalSpent      Decimal         @default(0)
   visitCount      Int            @default(0)
   lastVisit       DateTime?
   createdAt       DateTime       @default(now())
@@ -323,3 +411,77 @@ model AuditLog {
   ipAddress   String?
   createdAt   DateTime @default(now())
 }
+
+model DeliveryDriver {
+  id                String        @id @default(uuid())
+  businessId        String
+  name              String
+  phone             String
+  vehicle           String?
+  vehiclePlate      String?
+  status            String        @default("offline") // online, offline, busy
+  currentLat        Float?
+  currentLng        Float?
+  currentDeliveries Int           @default(0)
+  totalDeliveries   Int           @default(0)
+  rating            Float         @default(5.0)
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deliveries        Delivery[]
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model DeliveryZone {
+  id            String    @id @default(uuid())
+  businessId    String
+  name          String
+  nameAr        String?
+  areas         String?   // JSON array of area names
+  deliveryFee   Float     @default(0)
+  minOrder      Float     @default(0)
+  estimatedTime Int       @default(30)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deliveries    Delivery[]
+
+  @@index([businessId])
+}
+
+model Delivery {
+  id              String          @id @default(uuid())
+  businessId      String
+  orderId         String?         @unique
+  order           Order?          @relation(fields: [orderId], references: [id])
+  driverId        String?
+  driver          DeliveryDriver? @relation(fields: [driverId], references: [id])
+  zoneId          String?
+  zone            DeliveryZone?   @relation(fields: [zoneId], references: [id])
+  status          String          @default("pending") // pending, assigned, picked_up, in_transit, delivered, failed
+  customerName    String
+  customerPhone   String?
+  customerAddress String?
+  customerLat     Float?
+  customerLng     Float?
+  deliveryFee     Float           @default(0)
+  distance        Float?
+  estimatedTime   Int?
+  actualTime      Int?
+  notes           String?
+  assignedAt      DateTime?
+  pickedUpAt      DateTime?
+  deliveredAt     DateTime?
+  failedAt        DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([businessId])
+  @@index([driverId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+

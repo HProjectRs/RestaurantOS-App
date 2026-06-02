@@ -29,6 +29,16 @@ services:
         limits:
           memory: 512M
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - restaurantos-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   server:
     build:
       context: ./server
@@ -37,6 +47,7 @@ services:
       - '${SERVER_PORT:-3001}:3001'
     environment:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD}@postgres:5432/restaurantos?schema=public
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
       REFRESH_SECRET: ${REFRESH_SECRET}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
@@ -50,6 +61,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
     networks:
       - restaurantos-net

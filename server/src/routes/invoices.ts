@@ -2,12 +2,14 @@ import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { authenticate } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ValidationError, ConflictError } from '../errors'
+import { generateZatcaQRBase64, formatZatcaInvoiceDate } from '../utils/zatca'
 
 const router = Router()
 
 // Generate invoice data for an order
-router.get('/orders/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/orders/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, businessId: req.user!.businessId },
@@ -17,7 +19,7 @@ router.get('/orders/:id', authenticate, async (req: AuthRequest, res: Response) 
         cashier: { select: { id: true, name: true } },
       },
     })
-    if (!order) return res.status(404).json({ error: 'Order not found' })
+    if (!order) throw new NotFoundError('Order')
 
     const business = await prisma.business.findUnique({ where: { id: order.businessId } })
 
@@ -65,14 +67,10 @@ router.get('/orders/:id', authenticate, async (req: AuthRequest, res: Response) 
     }
 
     res.json(invoice)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Generate invoice as plain text (for thermal printer)
-router.get('/orders/:id/print', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/orders/:id/print', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, businessId: req.user!.businessId },
@@ -81,7 +79,7 @@ router.get('/orders/:id/print', authenticate, async (req: AuthRequest, res: Resp
         table: true,
       },
     })
-    if (!order) return res.status(404).json({ error: 'Order not found' })
+    if (!order) throw new NotFoundError('Order')
 
     const business = await prisma.business.findUnique({ where: { id: order.businessId } })
     const businessName = business?.nameAr || business?.name || 'Restaurant'
@@ -116,9 +114,83 @@ router.get('/orders/:id/print', authenticate, async (req: AuthRequest, res: Resp
     print += `\n${'='.repeat(32)}\n`
 
     res.type('text/plain; charset=utf-8').send(print)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
+
+// ZATCA-compliant invoice with QR code (Saudi tax authority)
+router.get('/orders/:id/zatca', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+    const prisma: PrismaClient = req.app.get('prisma')
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, businessId: req.user!.businessId },
+      include: {
+        items: { include: { menuItem: true } },
+        table: true,
+        cashier: { select: { id: true, name: true } },
+      },
+    })
+    if (!order) throw new NotFoundError('Order')
+
+    const business = await prisma.business.findUnique({ where: { id: order.businessId } })
+
+    const sellerName = business?.nameAr || business?.name || ''
+    const vatNumber = ''
+    const invoiceDate = formatZatcaInvoiceDate(order.createdAt)
+    const totalWithVat = Number(order.total)
+    const vatTotal = Number(order.tax)
+
+    const qrBase64 = await generateZatcaQRBase64({ sellerName, vatNumber, invoiceDate, totalWithVat, vatTotal })
+
+    const invoice = {
+      header: {
+        businessName: sellerName,
+        businessLogo: business?.logo || null,
+        taxNumber: vatNumber,
+        address: '',
+        phone: '',
+      },
+      order: {
+        number: order.orderNumber,
+        date: order.createdAt,
+        type: order.type,
+        status: order.status,
+        table: order.table?.number || null,
+        cashier: order.cashier?.name || null,
+      },
+      items: order.items.map(item => ({
+        name: item.menuItem.nameAr || item.menuItem.name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.price * item.quantity,
+        modifiers: item.selectedModifiers || {},
+      })),
+      summary: {
+        subtotal: Number(order.subtotal),
+        tax: Number(order.tax),
+        serviceCharge: Number(order.serviceCharge),
+        discount: Number(order.discount),
+        total: Number(order.total),
+        paid: order.paymentStatus === 'PAID' ? Number(order.total) : 0,
+        due: order.paymentStatus === 'PAID' ? 0 : Number(order.total),
+      },
+      payment: {
+        method: order.paymentMethod || null,
+        status: order.paymentStatus,
+      },
+      zatca: {
+        qrCodeBase64: qrBase64,
+        sellerName,
+        vatNumber,
+        invoiceDate,
+        totalWithVat,
+        vatTotal,
+      },
+      footer: {
+        thankYou: 'شكراً لزيارتكم',
+        thankYouFr: 'Merci de votre visite',
+        thankYouEn: 'Thank you for your visit',
+      },
+    }
+
+    res.json(invoice)
+}))
 
 export default router

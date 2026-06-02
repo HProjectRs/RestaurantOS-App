@@ -442,4 +442,255 @@ const options: swaggerJsdoc.Options = {
   apis: [],
 }
 
-export const swaggerSpec = swaggerJsdoc(options)
+// Extended paths for complete Swagger docs
+const extendedPaths = {
+  '/payments/webhook': {
+    post: {
+      tags: ['Payments'],
+      summary: 'Stripe webhook endpoint',
+      description: 'Receives Stripe webhook events (payment_intent.succeeded, payment_intent.payment_failed, charge.refunded). Must receive raw body — do NOT send with Content-Type application/json.',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object' },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Webhook received and processed' },
+        400: { description: 'Signature verification failed' },
+      },
+    },
+  },
+  '/payments/create-intent': {
+    post: {
+      tags: ['Payments'],
+      summary: 'Create Stripe payment intent',
+      security: [{ BearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['orderId'],
+              properties: { orderId: { type: 'string', format: 'uuid' } },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Payment intent created',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { clientSecret: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/payments/config': {
+    get: {
+      tags: ['Payments'],
+      summary: 'Get Stripe publishable key',
+      responses: {
+        200: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { publishableKey: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/tables': {
+    get: {
+      tags: ['Tables'],
+      summary: 'List all tables',
+      security: [{ BearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'Array of tables',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/Table' },
+              },
+            },
+          },
+        },
+      },
+    },
+    post: {
+      tags: ['Tables'],
+      summary: 'Create a table with QR code',
+      security: [{ BearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['number', 'capacity'],
+              properties: {
+                number: { type: 'string' },
+                capacity: { type: 'integer', minimum: 1 },
+              },
+            },
+          },
+        },
+      },
+      responses: { 201: { description: 'Table created' } },
+    },
+  },
+  '/tables/{id}': {
+    put: {
+      tags: ['Tables'],
+      summary: 'Update table',
+      security: [{ BearerAuth: [] }],
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+      ],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                number: { type: 'string' },
+                capacity: { type: 'integer' },
+                status: { type: 'string', enum: ['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'] },
+                version: { type: 'integer', description: 'Required for optimistic locking' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Table updated' },
+        409: { description: 'Conflict — version mismatch' },
+      },
+    },
+    delete: {
+      tags: ['Tables'],
+      summary: 'Soft-delete a table',
+      security: [{ BearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Table removed' } },
+    },
+  },
+  '/tables/{id}/status': {
+    patch: {
+      tags: ['Tables'],
+      summary: 'Update table status',
+      security: [{ BearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['status'],
+              properties: {
+                status: { type: 'string', enum: ['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'] },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Status updated' },
+        409: { description: 'Table already occupied' },
+      },
+    },
+  },
+  '/tables/{id}/regenerate-qr': {
+    post: {
+      tags: ['Tables'],
+      summary: 'Regenerate QR code for a table',
+      security: [{ BearerAuth: [] }],
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'QR code regenerated' } },
+    },
+  },
+  '/health': {
+    get: {
+      tags: ['System'],
+      summary: 'Health check',
+      responses: {
+        200: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  status: { type: 'string' },
+                  timestamp: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+
+const def = options.definition!
+const mergedOptions: any = {
+  ...options,
+  definition: {
+    ...def,
+    paths: {
+      ...def.paths,
+      ...extendedPaths,
+    },
+    components: {
+      ...def.components,
+      schemas: {
+        ...def.components?.schemas,
+        Table: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            number: { type: 'string' },
+            capacity: { type: 'integer' },
+            status: { type: 'string', enum: ['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'] },
+            version: { type: 'integer' },
+            qrCode: { type: 'string' },
+            isActive: { type: 'boolean' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        WebhookResponse: {
+          type: 'object',
+          properties: { received: { type: 'boolean' } },
+        },
+        CreatePaymentIntentRequest: {
+          type: 'object',
+          required: ['orderId'],
+          properties: { orderId: { type: 'string', format: 'uuid' } },
+        },
+        CreatePaymentIntentResponse: {
+          type: 'object',
+          properties: { clientSecret: { type: 'string' } },
+        },
+      },
+    },
+  },
+}
+
+export const swaggerSpec = swaggerJsdoc(mergedOptions as any)

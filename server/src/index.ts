@@ -9,6 +9,8 @@ import { swaggerSpec } from './swagger'
 import path from 'path'
 import { createServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
+import { createClient } from 'redis'
+import { createAdapter } from '@socket.io/redis-adapter'
 import { PrismaClient } from '@prisma/client'
 import { setupSocketHandlers } from './sockets'
 import authRoutes from './routes/auth'
@@ -24,10 +26,14 @@ import expenseRoutes from './routes/expenses'
 import licenseRoutes from './routes/licenses'
 import backupRoutes from './routes/backups'
 import invoiceRoutes from './routes/invoices'
-import paymentRoutes from './routes/payments'
+import paymentRoutes, { handleStripeWebhook } from './routes/payments'
+import subscriptionRoutes from './routes/subscriptions'
+import { startSubscriptionCron } from './tasks/checkSubscriptions'
 import loyaltyRoutes from './routes/loyalty'
-import { apiLimiter, authLimiter } from './middleware/rateLimiter'
+import deliveryRoutes from './routes/delivery'
+import { apiLimiter, authLimiter, webhookLimiter } from './middleware/rateLimiter'
 import { sanitizeInput } from './middleware/sanitize'
+import { correlationId } from './middleware/correlationId'
 import { initSentry, setupSentryErrorHandler } from './sentry'
 import { validateEnv } from './check-env'
 
@@ -38,14 +44,24 @@ if (process.env.NODE_ENV !== 'test') {
 
 const app = express()
 const httpServer = createServer(app)
-const prisma = new PrismaClient()
 const isProduction = process.env.NODE_ENV === 'production'
+const prisma = new PrismaClient({
+  log: isProduction ? ['warn', 'error'] : ['query', 'warn', 'error'],
+})
 
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST'],
   },
+})
+
+const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' })
+const subClient = pubClient.duplicate()
+
+Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+  io.adapter(createAdapter(pubClient, subClient))
+  console.log('🚀 Redis adapter connected for Socket.io')
 })
 
 // Trust proxy for correct IP behind reverse proxies
@@ -85,12 +101,18 @@ app.disable('x-powered-by')
 // Initialize Sentry error monitoring
 initSentry(app)
 
+// Stripe webhook MUST use raw body before any other body parser
+app.post('/api/payments/webhook', webhookLimiter, express.raw({ type: 'application/json' }), handleStripeWebhook)
+
 // Body parsing
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // Parameter pollution protection
 app.use(hpp())
+
+// Correlation ID for request tracing
+app.use(correlationId)
 
 // Input sanitization (XSS prevention)
 app.use('/api/', sanitizeInput)
@@ -122,7 +144,9 @@ app.use('/api/licenses', licenseRoutes)
 app.use('/api/backups', backupRoutes)
 app.use('/api/invoices', invoiceRoutes)
 app.use('/api/payments', paymentRoutes)
+app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/loyalty', loyaltyRoutes)
+app.use('/api/delivery', deliveryRoutes)
 
 // Swagger documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -153,23 +177,31 @@ app.use('/api/*', (_req, res) => {
 // Sentry error handler (must be before generic error handler)
 setupSentryErrorHandler(app)
 
-// Secure error handler (no stack traces in production)
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err)
-  res.status(err.status || 500).json({
-    error: isProduction ? 'Internal server error' : err.message,
-  })
-})
+import { errorHandler } from './middleware/errorHandler'
+app.use(errorHandler)
 
-setupSocketHandlers(io, prisma)
+setupSocketHandlers(io, prisma, pubClient)
 
 const PORT = process.env.PORT || 3001
 httpServer.listen(PORT, () => {
   console.log(`🚀 RestaurantOS Server running on port ${PORT}`)
+  startSubscriptionCron(prisma)
 })
 
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect()
-  httpServer.close()
-  process.exit(0)
-})
+function gracefulShutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Shutting down gracefully...`)
+  io.close()
+  httpServer.close(async () => {
+    await prisma.$disconnect()
+    await pubClient.quit()
+    await subClient.quit()
+    process.exit(0)
+  })
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout')
+    process.exit(1)
+  }, 10000)
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))

@@ -2,7 +2,11 @@ import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import crypto from 'crypto'
 import { authenticate, requireRole } from '../middleware/auth'
+import { validate } from '../middleware/validate'
+import { licenseCreateSchema, licenseUpdateSchema } from '../schemas'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ValidationError, ConflictError } from '../errors'
 
 const router = Router()
 
@@ -15,15 +19,14 @@ function generateLicenseKey(): string {
 }
 
 // Get license info (public - no auth needed for verification)
-router.post('/verify', async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/verify', asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { key, businessId } = req.body
     const where: any = { key }
     if (businessId) where.businessId = businessId
 
     const license = await prisma.license.findFirst({ where })
-    if (!license) return res.status(404).json({ valid: false, error: 'License not found' })
+    if (!license) throw new NotFoundError('License')
     if (!license.isActive) return res.status(403).json({ valid: false, error: 'License is deactivated' })
     if (new Date() > license.validUntil) return res.status(410).json({ valid: false, error: 'License expired' })
 
@@ -34,34 +37,26 @@ router.post('/verify', async (req: AuthRequest, res: Response) => {
       maxBranches: license.maxBranches,
       validUntil: license.validUntil,
     })
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Get current license
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const license = await prisma.license.findUnique({
       where: { businessId: req.user!.businessId },
     })
-    if (!license) return res.status(404).json({ error: 'No license found' })
+    if (!license) throw new NotFoundError('License')
     res.json(license)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 // Generate license (admin only)
-router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/', authenticate, requireRole('ADMIN'), validate(licenseCreateSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { businessId, plan, maxUsers, maxBranches, validDays } = req.body
-    if (!businessId) return res.status(400).json({ error: 'businessId required' })
+    if (!businessId) throw new ValidationError('businessId required')
 
     const existing = await prisma.license.findUnique({ where: { businessId } })
-    if (existing) return res.status(400).json({ error: 'Business already has a license' })
+    if (existing) throw new ConflictError('Business already has a license')
 
     const key = generateLicenseKey()
     const validFrom = new Date()
@@ -80,22 +75,16 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, re
       },
     })
     res.status(201).json(license)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
-router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
-  try {
+router.put('/:id', authenticate, requireRole('ADMIN'), validate(licenseUpdateSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
+    const { plan, maxUsers, maxBranches, validFrom, validUntil, isActive } = req.body
     const license = await prisma.license.update({
       where: { id: req.params.id },
-      data: req.body,
+      data: { plan, maxUsers, maxBranches, validFrom: validFrom ? new Date(validFrom) : undefined, validUntil: validUntil ? new Date(validUntil) : undefined, isActive },
     })
     res.json(license)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 export default router

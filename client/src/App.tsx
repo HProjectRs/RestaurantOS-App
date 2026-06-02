@@ -1,102 +1,56 @@
-import { useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useAuthStore } from './store/authStore'
-import NetworkStatus from './components/NetworkStatus'
-import LoginPage from './pages/LoginPage'
-import MenuPage from './pages/MenuPage'
-import CartPage from './pages/CartPage'
-import KitchenPage from './pages/KitchenPage'
-import AdminLayout from './components/layout/AdminLayout'
-import DashboardPage from './pages/admin/DashboardPage'
-import MenuManagementPage from './pages/admin/MenuManagementPage'
-import OrdersPage from './pages/admin/OrdersPage'
-import TablesPage from './pages/admin/TablesPage'
-import EmployeesPage from './pages/admin/EmployeesPage'
-import WifiPage from './pages/admin/WifiPage'
-import ReportsPage from './pages/admin/ReportsPage'
-import ReservationsPage from './pages/admin/ReservationsPage'
-import SettingsPage from './pages/admin/SettingsPage'
-import POSPage from './pages/admin/POSPage'
-import ShiftsPage from './pages/admin/ShiftsPage'
-import ExpensesPage from './pages/admin/ExpensesPage'
-import UsersPage from './pages/admin/UsersPage'
-import WiFiConnectPage from './pages/WiFiConnectPage'
-import OrderTrackingPage from './pages/OrderTrackingPage'
-import ConsumerHomePage from './pages/ConsumerHomePage'
+import { lazy, Suspense } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { ROUTES } from './constants/routes'
+import { ProtectedRoute } from './guards/ProtectedRoute'
+import { RoleGuard } from './guards/RoleGuard'
+import { Layout } from './components/layout/Layout'
+import { ErrorBoundary } from './error/ErrorBoundary'
 
-function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
-  const { isAuthenticated, user } = useAuthStore()
-  const location = useLocation()
+const LoginPage = lazy(() => import('./pages/Auth/LoginPage'))
+const ChangePasswordPage = lazy(() => import('./pages/Auth/ChangePasswordPage'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const POSPage = lazy(() => import('./pages/POS'))
+const TablesIndex = lazy(() => import('./pages/Tables'))
+const InventoryIndex = lazy(() => import('./pages/Inventory'))
+const RecipesIndex = lazy(() => import('./pages/Recipes'))
+const SuppliersIndex = lazy(() => import('./pages/Suppliers'))
+const HRIndex = lazy(() => import('./pages/HR'))
+const AccountingIndex = lazy(() => import('./pages/Accounting'))
+const CRMIndex = lazy(() => import('./pages/CRM'))
+const DeliveryIndex = lazy(() => import('./pages/Delivery'))
+const ReportsIndex = lazy(() => import('./pages/Reports'))
+const SettingsIndex = lazy(() => import('./pages/Settings'))
+const MenuPage = lazy(() => import('./pages/Menu'))
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />
-  }
-
-  if (roles && user && !roles.includes(user.role)) {
-    return <Navigate to="/admin" replace />
-  }
-
-  return <>{children}</>
-}
-
-function LoadingSpinner() {
+function App() {
   return (
-    <div className="flex flex-col items-center gap-3 min-h-screen justify-center">
-      <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-      <p className="text-slate-400">جاري التحميل...</p>
-    </div>
+    <ErrorBoundary>
+      <Suspense fallback={<div className="flex items-center justify-center min-h-screen bg-gray-950"><div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>}>
+        <Routes>
+          <Route path={ROUTES.LOGIN} element={<LoginPage />} />
+          <Route path={ROUTES.CHANGE_PASSWORD} element={<ChangePasswordPage />} />
+          <Route path={ROUTES.PUBLIC_MENU} element={<MenuPage />} />
+          <Route path="/" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+          <Route path={ROUTES.DASHBOARD} element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route index element={<Dashboard />} />
+            <Route path="pos" element={<RoleGuard module="POS"><POSPage /></RoleGuard>} />
+            <Route path="orders" element={<RoleGuard module="Orders"><POSPage /></RoleGuard>} />
+            <Route path="tables" element={<RoleGuard module="Tables"><TablesIndex /></RoleGuard>} />
+            <Route path="inventory" element={<RoleGuard module="Inventory"><InventoryIndex /></RoleGuard>} />
+            <Route path="recipes" element={<RoleGuard module="Recipes"><RecipesIndex /></RoleGuard>} />
+            <Route path="suppliers" element={<RoleGuard module="Suppliers"><SuppliersIndex /></RoleGuard>} />
+            <Route path="hr" element={<RoleGuard module="HR"><HRIndex /></RoleGuard>} />
+            <Route path="accounting" element={<RoleGuard module="Accounting"><AccountingIndex /></RoleGuard>} />
+            <Route path="crm" element={<RoleGuard module="CRM"><CRMIndex /></RoleGuard>} />
+            <Route path="delivery" element={<RoleGuard module="Delivery"><DeliveryIndex /></RoleGuard>} />
+            <Route path="reports" element={<RoleGuard module="Reports"><ReportsIndex /></RoleGuard>} />
+            <Route path="settings" element={<RoleGuard module="Settings"><SettingsIndex /></RoleGuard>} />
+          </Route>
+          <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   )
 }
 
-export default function App() {
-  const { checkAuth, isLoading } = useAuthStore()
-
-  useEffect(() => {
-    checkAuth()
-  }, [])
-
-  if (isLoading) return <LoadingSpinner />
-
-  return (
-    <>
-    <NetworkStatus />
-    <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/menu" element={<MenuPage />} />
-      <Route path="/cart" element={<CartPage />} />
-      <Route path="/kitchen" element={<KitchenPage />} />
-      <Route path="/wifi" element={<WiFiConnectPage />} />
-      <Route path="/order/:orderNumber" element={<OrderTrackingPage />} />
-      <Route path="/consumer" element={<ConsumerHomePage />} />
-
-      {/* Protected admin routes */}
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute>
-            <AdminLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<DashboardPage />} />
-        <Route path="menu" element={<MenuManagementPage />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="pos" element={<POSPage />} />
-        <Route path="tables" element={<TablesPage />} />
-        <Route path="employees" element={<EmployeesPage />} />
-        <Route path="wifi" element={<WifiPage />} />
-        <Route path="reports" element={<ProtectedRoute roles={['ADMIN', 'MANAGER']}><ReportsPage /></ProtectedRoute>} />
-        <Route path="reservations" element={<ReservationsPage />} />
-        <Route path="shifts" element={<ShiftsPage />} />
-        <Route path="expenses" element={<ProtectedRoute roles={['ADMIN', 'MANAGER']}><ExpensesPage /></ProtectedRoute>} />
-        <Route path="users" element={<ProtectedRoute roles={['ADMIN']}><UsersPage /></ProtectedRoute>} />
-        <Route path="settings" element={<ProtectedRoute roles={['ADMIN']}><SettingsPage /></ProtectedRoute>} />
-      </Route>
-
-      <Route path="/" element={<ConsumerHomePage />} />
-      <Route path="*" element={<Navigate to="/" />} />
-    </Routes>
-    </>
-  )
-}
+export default App

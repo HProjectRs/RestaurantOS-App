@@ -1,0 +1,15 @@
+{
+  "name": "RestaurantOS - قائمة الطعام",
+  "short_name": "RestaurantOS",
+  "description": "طلب الطعام من مطعمك المفضل",
+  "start_url": "/menu",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "orientation": "portrait",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

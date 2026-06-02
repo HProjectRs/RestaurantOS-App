@@ -32,6 +32,8 @@ const app = express()
 app.use(express.json())
 app.set('prisma', prisma)
 app.use('/api/menu', menuRoutes)
+import { errorHandler } from '../middleware/errorHandler'
+app.use(errorHandler)
 
 beforeEach(() => {
   mockReset(prisma)
@@ -169,7 +171,7 @@ describe('Menu Routes', () => {
 
       const res = await request(app)
         .post('/api/menu/items')
-        .send({ name: 'Latte', nameAr: 'لاتيه', price: 18, categoryId: 'cat-1' })
+        .send({ name: 'Latte', nameAr: 'لاتيه', price: 18, categoryId: '00000000-0000-0000-0000-000000000001' })
 
       expect(res.status).toBe(201)
       expect(res.body).toHaveProperty('id')

@@ -30,11 +30,6 @@ function padCenter(text: string, width: number): string {
   return ' '.repeat(left) + text + ' '.repeat(right)
 }
 
-function padRight(text: string, width: number): string {
-  const padding = Math.max(0, width - text.length)
-  return ' '.repeat(padding) + text
-}
-
 export function generateEscPosReceipt(data: ReceiptData): Uint8Array {
   const WIDTH = 32
   const LF = '\n'

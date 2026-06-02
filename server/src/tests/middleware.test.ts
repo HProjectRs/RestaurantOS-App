@@ -336,3 +336,135 @@ describe('AuditLog Middleware', () => {
     expect(details.statusCode).toBe(400)
   })
 })
+
+// ─── errorHandler ───────────────────────────────────────────────────────────
+
+describe('errorHandler', () => {
+  let app: express.Application
+
+  beforeAll(async () => {
+    const { errorHandler } = await import('../middleware/errorHandler')
+    const { ValidationError } = await import('../errors')
+    const { Prisma } = await import('@prisma/client')
+    app = express()
+    app.use(express.json())
+
+    app.post('/test-generic', () => {
+      throw new Error('Generic error')
+    })
+
+    app.post('/test-apperror', () => {
+      throw new ValidationError('Bad input')
+    })
+
+    app.post('/test-p2002', () => {
+      throw new Prisma.PrismaClientKnownRequestError('Unique constraint', { code: 'P2002', clientVersion: '5.0.0' })
+    })
+
+    app.post('/test-p2003', () => {
+      throw new Prisma.PrismaClientKnownRequestError('Foreign key', { code: 'P2003', clientVersion: '5.0.0' })
+    })
+
+    app.use(errorHandler)
+  })
+
+  it('returns 500 for generic error', async () => {
+    const res = await request(app).post('/test-generic')
+    expect(res.status).toBe(500)
+    expect(res.body.code).toBe('INTERNAL_ERROR')
+  })
+
+  it('handles AppError subclass', async () => {
+    const res = await request(app).post('/test-apperror')
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 409 for P2002 unique constraint', async () => {
+    const res = await request(app).post('/test-p2002')
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('CONFLICT')
+  })
+
+  it('returns 400 for P2003 foreign key', async () => {
+    const res = await request(app).post('/test-p2003')
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('INVALID_REFERENCE')
+  })
+
+  it('falls through for other Prisma error codes', async () => {
+    const { Prisma } = await import('@prisma/client')
+    const app2 = express()
+    const { errorHandler } = await import('../middleware/errorHandler')
+    app2.post('/test-p2025', () => {
+      throw new Prisma.PrismaClientKnownRequestError('Record not found', { code: 'P2025', clientVersion: '5.0.0' })
+    })
+    app2.use(errorHandler)
+    const request2 = require('supertest')
+    const res = await request2(app2).post('/test-p2025')
+    expect(res.status).toBe(500)
+  })
+})
+
+// ─── validate middleware branches ───────────────────────────────────────────
+
+describe('validate middleware', () => {
+  it('returns 400 for invalid body with custom message', async () => {
+    const { validate } = await import('../middleware/validate')
+    const { z } = await import('zod')
+    const app = express()
+    app.use(express.json())
+    const schema = z.object({ name: z.string().min(1) })
+    app.post('/test', validate(schema, { message: 'Custom error' }), (req: any, res: any) => res.json({ ok: true }))
+    const res = await request(app).post('/test').send({ name: '' })
+    expect(res.status).toBe(400)
+  })
+
+  it('passes non-Zod errors to next()', async () => {
+    const { validate } = await import('../middleware/validate')
+    const app = express()
+    app.use(express.json())
+    const mockSchema = { parse: jest.fn().mockImplementation(() => { throw new Error('DB error') }) }
+    app.post('/test', validate(mockSchema as any), (req: any, res: any) => res.json({ ok: true }))
+    app.use((err: any, req: any, res: any, next: any) => {
+      res.status(500).json({ error: err.message })
+    })
+    const res = await request(app).post('/test').send({ name: 'test' })
+    expect(res.status).toBe(500)
+    expect(res.body.error).toBe('DB error')
+  })
+})
+
+describe('Auth module-level env checks', () => {
+  it('exits when JWT_SECRET is missing', () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    const origJwt = process.env.JWT_SECRET
+    delete process.env.JWT_SECRET
+    jest.isolateModules(() => { require('../middleware/auth') })
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errorSpy).toHaveBeenCalledWith('FATAL: JWT_SECRET environment variable is not set')
+
+    process.env.JWT_SECRET = origJwt
+    exitSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
+  it('exits when REFRESH_SECRET is missing', () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    const origRefresh = process.env.REFRESH_SECRET
+    delete process.env.REFRESH_SECRET
+    jest.isolateModules(() => { require('../middleware/auth') })
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errorSpy).toHaveBeenCalledWith('FATAL: REFRESH_SECRET environment variable is not set')
+
+    process.env.REFRESH_SECRET = origRefresh
+    exitSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+})

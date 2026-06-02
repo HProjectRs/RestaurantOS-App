@@ -1,141 +1,106 @@
 import { Router, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import QRCode from 'qrcode'
 import { authenticate, requireRole } from '../middleware/auth'
+import { validate } from '../middleware/validate'
+import { tableUpdateSchema } from '../schemas'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ConflictError } from '../errors'
 
 const router = Router()
 
-/**
- * GET /api/tables
- * Get all active tables for the current business, ordered by number.
- * @returns {Table[]}
- */
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const tables = await prisma.table.findMany({
+    where: { businessId: req.user!.businessId, isActive: true },
+    orderBy: { number: 'asc' },
+  })
+  res.json(tables)
+}))
+
+router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const { number, capacity } = req.body
+  const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
+
+  const table = await prisma.table.create({
+    data: { number, capacity, businessId: req.user!.businessId },
+  })
+
+  const qrData = `${domain}/consumer?businessId=${req.user!.businessId}&tableId=${table.id}&table=${table.number}`
+  const qrCode = await QRCode.toDataURL(qrData)
+
+  const updated = await prisma.table.update({
+    where: { id: table.id },
+    data: { qrCode },
+  })
+  res.status(201).json(updated)
+}))
+
+router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER'), validate(tableUpdateSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const { number, capacity, status, version } = req.body
+
+  if (!version) throw new ConflictError('version required for optimistic locking')
+
   try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const tables = await prisma.table.findMany({
-      where: { businessId: req.user!.businessId, isActive: true },
-      orderBy: { number: 'asc' },
-    })
-    res.json(tables)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-/**
- * POST /api/tables
- * Create a new table and generate its QR code for self-ordering.
- * @body {number: string, capacity: number}
- * @returns 201 {Table} with QR code
- */
-router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { number, capacity } = req.body
-    const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
-
-    const table = await prisma.table.create({
-      data: { number, capacity, businessId: req.user!.businessId },
-    })
-
-    // Generate QR code pointing to consumer page
-    const qrData = `${domain}/consumer?businessId=${req.user!.businessId}&tableId=${table.id}&table=${table.number}`
-    const qrCode = await QRCode.toDataURL(qrData)
-
-    const updated = await prisma.table.update({
-      where: { id: table.id },
-      data: { qrCode },
-    })
-
-    res.status(201).json(updated)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-/**
- * PUT /api/tables/:id
- * Update a table's properties.
- * @body {number?, capacity?, status?}
- * @returns {Table}
- */
-router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
     const table = await prisma.table.update({
-      where: { id: req.params.id },
-      data: req.body,
+      where: { id: req.params.id, version },
+      data: { number, capacity, status, version: { increment: 1 } },
     })
     res.json(table)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
+  } catch (err) {
+    if ((err as Record<string, any>)?.code === 'P2025') {
+      throw new ConflictError('Table was modified by another request')
+    }
+    throw err
   }
-})
+}))
 
-/**
- * DELETE /api/tables/:id
- * Soft-delete a table (sets isActive to false).
- * @returns {message: string}
- */
-router.delete('/:id', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    await prisma.table.update({
-      where: { id: req.params.id },
-      data: { isActive: false },
+router.delete('/:id', authenticate, requireRole('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  await prisma.table.update({
+    where: { id: req.params.id },
+    data: { isActive: false },
+  })
+  res.json({ message: 'Table removed' })
+}))
+
+router.patch('/:id/status', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const { status } = req.body
+
+  const table = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const current = await tx.table.findUnique({ where: { id: req.params.id } })
+    if (!current) throw new NotFoundError('Table')
+
+    if (status === 'OCCUPIED' && current.status === 'OCCUPIED') {
+      throw new ConflictError('Table already occupied')
+    }
+
+    return tx.table.update({
+      where: { id: req.params.id, version: current.version },
+      data: { status, version: { increment: 1 } },
     })
-    res.json({ message: 'Table removed' })
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+  })
+  res.json(table)
+}))
 
-/**
- * PATCH /api/tables/:id/status
- * Update a table's status (AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE).
- * @body {status: TableStatus}
- * @returns {Table}
- */
-router.patch('/:id/status', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const { status } = req.body
-    const table = await prisma.table.update({
-      where: { id: req.params.id },
-      data: { status },
-    })
-    res.json(table)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.post('/:id/regenerate-qr', authenticate, requireRole('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: Response) => {
+  const prisma: PrismaClient = req.app.get('prisma')
+  const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
+  const table = await prisma.table.findUnique({ where: { id: req.params.id } })
+  if (!table) throw new NotFoundError('Table')
 
-/**
- * POST /api/tables/:id/regenerate-qr
- * Regenerate the QR code for a table.
- * @returns {Table} with updated QR code
- * @throws 404 if table not found
- */
-router.post('/:id/regenerate-qr', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
-  try {
-    const prisma: PrismaClient = req.app.get('prisma')
-    const domain = process.env.FRONTEND_URL || 'http://localhost:5173'
-    const table = await prisma.table.findUnique({ where: { id: req.params.id } })
-    if (!table) return res.status(404).json({ error: 'Table not found' })
+  const qrData = `${domain}/consumer?businessId=${table.businessId}&tableId=${table.id}&table=${table.number}`
+  const qrCode = await QRCode.toDataURL(qrData)
 
-    const qrData = `${domain}/consumer?businessId=${table.businessId}&tableId=${table.id}&table=${table.number}`
-    const qrCode = await QRCode.toDataURL(qrData)
-
-    const updated = await prisma.table.update({
-      where: { id: table.id },
-      data: { qrCode },
-    })
-    res.json(updated)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+  const updated = await prisma.table.update({
+    where: { id: table.id },
+    data: { qrCode },
+  })
+  res.json(updated)
+}))
 
 export default router

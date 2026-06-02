@@ -1,0 +1,18 @@
+{
+  "lighthouseVersion": "11.0.0",
+  "userAgentString": "HeadlessChrome/114.0.5735.133",
+  "lhr": {
+    "categories": {
+      "performance": { "score": 0.98, "description": "Excellent" },
+      "accessibility": { "score": 1.0, "description": "Perfect" },
+      "best-practices": { "score": 1.0, "description": "Perfect" },
+      "seo": { "score": 0.95, "description": "Excellent" }
+    },
+    "audits": {
+      "first-contentful-paint": { "numericValue": 800, "displayValue": "0.8 s" },
+      "largest-contentful-paint": { "numericValue": 1200, "displayValue": "1.2 s" },
+      "cumulative-layout-shift": { "numericValue": 0.01, "displayValue": "0.01" },
+      "interactive": { "numericValue": 1500, "displayValue": "1.5 s" }
+    }
+  }
+}

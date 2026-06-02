@@ -1,29 +1,28 @@
-import i18n from 'i18next'
-import { initReactI18next } from 'react-i18next'
-import { translations } from './translations'
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import ar from './ar.json';
+import fr from './fr.json';
+import { useSettingsStore } from '../store/settingsStore';
 
-export type { Language } from './translations'
-export { translations }
+const language = useSettingsStore.getState().language || 'ar';
 
 i18n.use(initReactI18next).init({
   resources: {
-    ar: { translation: translations.ar },
-    fr: { translation: translations.fr },
-    en: { translation: translations.en },
+    ar: { translation: ar },
+    fr: { translation: fr },
   },
-  lng: localStorage.getItem('language') || 'ar',
+  lng: language,
   fallbackLng: 'ar',
-  interpolation: { escapeValue: false },
-})
+  interpolation: {
+    escapeValue: false,
+  },
+});
 
-i18n.on('languageChanged', (lng) => {
-  localStorage.setItem('language', lng)
-  document.documentElement.dir = lng === 'ar' ? 'rtl' : 'ltr'
-  document.documentElement.lang = lng
-})
 
-const dir = i18n.language === 'ar' ? 'rtl' : 'ltr'
-document.documentElement.dir = dir
-document.documentElement.lang = i18n.language
+useSettingsStore.subscribe((state) => {
+  if (state.language && state.language !== i18n.language) {
+    i18n.changeLanguage(state.language);
+  }
+});
 
-export default i18n
+export default i18n;

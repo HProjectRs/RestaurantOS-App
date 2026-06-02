@@ -4,6 +4,8 @@ import QRCode from 'qrcode'
 import { v4 as uuidv4 } from 'uuid'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ValidationError } from '../errors'
 
 const router = Router()
 
@@ -13,8 +15,7 @@ const router = Router()
  * @body {label?, durationMinutes?, maxSessions?}
  * @returns 201 {wifiQrCode, qrImage, qrUrl}
  */
-router.post('/qr-codes', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/qr-codes', authenticate, requireRole('ADMIN', 'MANAGER'), asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { label, durationMinutes, maxSessions } = req.body
 
@@ -36,18 +37,14 @@ router.post('/qr-codes', authenticate, requireRole('ADMIN', 'MANAGER'), async (r
     const qrImage = await QRCode.toDataURL(qrData)
 
     res.status(201).json({ ...wifiQr, qrImage, qrUrl: qrData })
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/wifi/qr-codes
  * Get all WiFi QR codes for the current business with session counts.
  * @returns {Array<WifiQrCode & {_count: {sessions: number}}>}
  */
-router.get('/qr-codes', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/qr-codes', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const qrCodes = await prisma.wifiQrCode.findMany({
       where: { businessId: req.user!.businessId },
@@ -55,10 +52,7 @@ router.get('/qr-codes', authenticate, async (req: AuthRequest, res: Response) =>
       orderBy: { createdAt: 'desc' },
     })
     res.json(qrCodes)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * POST /api/wifi/connect
@@ -69,8 +63,7 @@ router.get('/qr-codes', authenticate, async (req: AuthRequest, res: Response) =>
  * @throws 404 if QR code invalid or inactive
  * @throws 429 if max sessions reached
  */
-router.post('/connect', async (req: AuthRequest, res: Response) => {
-  try {
+router.post('/connect', asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const { code, phoneNumber, macAddress } = req.body
 
@@ -80,7 +73,7 @@ router.post('/connect', async (req: AuthRequest, res: Response) => {
     })
 
     if (!wifiQr || !wifiQr.isActive) {
-      return res.status(404).json({ error: 'Invalid or expired QR code' })
+      throw new NotFoundError('QR code')
     }
 
     // Check session limit
@@ -124,11 +117,7 @@ router.post('/connect', async (req: AuthRequest, res: Response) => {
         password: 'welcome', // Or dynamic password
       },
     })
-  } catch (error) {
-    console.error('WiFi connect error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/wifi/info/:code
@@ -136,31 +125,26 @@ router.post('/connect', async (req: AuthRequest, res: Response) => {
  * @returns {id, durationMinutes, business}
  * @throws 404 if QR code not found
  */
-router.get('/info/:code', async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/info/:code', asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const wifiQr = await prisma.wifiQrCode.findUnique({
       where: { code: req.params.code },
       include: { business: { select: { name: true, nameAr: true, logo: true } } },
     })
-    if (!wifiQr) return res.status(404).json({ error: 'QR code not found' })
+    if (!wifiQr) throw new NotFoundError('QR code')
     res.json({
       id: wifiQr.id,
       durationMinutes: wifiQr.durationMinutes,
       business: wifiQr.business,
     })
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/wifi/sessions
  * Get WiFi sessions for the current business (last 100).
  * @returns {Array<WifiSession & {wifiQrCode: {label, code}}>}
  */
-router.get('/sessions', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/sessions', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const sessions = await prisma.wifiSession.findMany({
       where: { wifiQrCode: { businessId: req.user!.businessId } },
@@ -169,28 +153,21 @@ router.get('/sessions', authenticate, async (req: AuthRequest, res: Response) =>
       include: { wifiQrCode: { select: { label: true, code: true } } },
     })
     res.json(sessions)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * PATCH /api/wifi/sessions/:id/disconnect
  * Forcefully disconnect an active WiFi session.
  * @returns {WifiSession} with status set to DISCONNECTED
  */
-router.patch('/sessions/:id/disconnect', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.patch('/sessions/:id/disconnect', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const session = await prisma.wifiSession.update({
       where: { id: req.params.id },
       data: { status: 'DISCONNECTED' },
     })
     res.json(session)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * PATCH /api/wifi/qr-codes/:id/toggle
@@ -198,19 +175,15 @@ router.patch('/sessions/:id/disconnect', authenticate, async (req: AuthRequest, 
  * @returns {WifiQrCode} with updated isActive flag
  * @throws 404 if QR code not found
  */
-router.patch('/qr-codes/:id/toggle', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.patch('/qr-codes/:id/toggle', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const qr = await prisma.wifiQrCode.findUnique({ where: { id: req.params.id } })
-    if (!qr) return res.status(404).json({ error: 'QR code not found' })
+    if (!qr) throw new NotFoundError('QR code')
     const updated = await prisma.wifiQrCode.update({
       where: { id: req.params.id },
       data: { isActive: !qr.isActive },
     })
     res.json(updated)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 export default router

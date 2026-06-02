@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { authenticate, requireRole } from '../middleware/auth'
 import { AuthRequest } from '../types'
+import { asyncHandler } from '../utils/asyncHandler'
+import { NotFoundError, ValidationError, ConflictError } from '../errors'
 
 const router = Router()
 
@@ -10,8 +12,7 @@ const router = Router()
  * Get dashboard summary with today's stats (orders, revenue, pending, tables, items).
  * @returns {todayOrders, todayRevenue, pendingOrders, activeTables, totalItems, totalCategories, recentOrders, topSellingItems}
  */
-router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/dashboard', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const today = new Date()
@@ -88,11 +89,7 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
       recentOrders,
       topSellingItems,
     })
-  } catch (error) {
-    console.error('Dashboard error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/sales
@@ -100,8 +97,7 @@ router.get('/dashboard', authenticate, async (req: AuthRequest, res: Response) =
  * @query {from?: string, to?: string, groupBy?: 'day'|'week'|'month'}
  * @returns {Array<{date, count, total}>}
  */
-router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/sales', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to, groupBy } = req.query
@@ -146,10 +142,7 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
     })).sort((a, b) => a.date.localeCompare(b.date))
 
     res.json(salesData)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/categories
@@ -157,8 +150,7 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response) => {
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, nameAr, totalSold, revenue}>}
  */
-router.get('/categories', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/categories', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to } = req.query
@@ -201,10 +193,7 @@ router.get('/categories', authenticate, async (req: AuthRequest, res: Response) 
     })
 
     res.json(categoryData)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/employees
@@ -212,8 +201,7 @@ router.get('/categories', authenticate, async (req: AuthRequest, res: Response) 
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, role, orderCount, totalSales}>}
  */
-router.get('/employees', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/employees', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to } = req.query
@@ -243,10 +231,7 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
     }))
 
     res.json(employeeData)
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/items-performance
@@ -254,8 +239,7 @@ router.get('/employees', authenticate, async (req: AuthRequest, res: Response) =
  * @query {from?: string, to?: string}
  * @returns {Array<{id, name, nameAr, quantity, revenue, orders, hourly, avgPerOrder}>}
  */
-router.get('/items-performance', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/items-performance', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to } = req.query
@@ -305,11 +289,7 @@ router.get('/items-performance', authenticate, async (req: AuthRequest, res: Res
     })).sort((a, b) => b.quantity - a.quantity)
 
     res.json(items)
-  } catch (error) {
-    console.error('Items performance error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/peak-hours
@@ -317,8 +297,7 @@ router.get('/items-performance', authenticate, async (req: AuthRequest, res: Res
  * @query {from?: string, to?: string}
  * @returns {hourly: Array<{hour, count, revenue}>, dow: Array<{day, count, revenue}>}
  */
-router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/peak-hours', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to } = req.query
@@ -357,11 +336,7 @@ router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) 
     }
 
     res.json({ hourly, dow })
-  } catch (error) {
-    console.error('Peak hours error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 /**
  * GET /api/reports/payment-methods
@@ -369,8 +344,7 @@ router.get('/peak-hours', authenticate, async (req: AuthRequest, res: Response) 
  * @query {from?: string, to?: string}
  * @returns {Record<string, {count, revenue}>}
  */
-router.get('/payment-methods', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
+router.get('/payment-methods', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
     const prisma: PrismaClient = req.app.get('prisma')
     const businessId = req.user!.businessId
     const { from, to } = req.query
@@ -396,10 +370,6 @@ router.get('/payment-methods', authenticate, async (req: AuthRequest, res: Respo
     }
 
     res.json(methods)
-  } catch (error) {
-    console.error('Payment methods error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+}))
 
 export default router

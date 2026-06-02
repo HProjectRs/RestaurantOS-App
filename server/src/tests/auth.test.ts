@@ -15,6 +15,8 @@ const app = express()
 app.use(express.json())
 app.set('prisma', prisma)
 app.use('/api/auth', authRoutes)
+import { errorHandler } from '../middleware/errorHandler'
+app.use(errorHandler)
 
 beforeEach(() => {
   mockReset(prisma)
