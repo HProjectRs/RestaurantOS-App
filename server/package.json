@@ -33,7 +33,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "express-rate-limit": "^8.5.1",
+    "express-rate-limit": "^8.5.2",
     "file-type": "^19.6.0",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
@@ -72,7 +72,7 @@
     "jest-mock-extended": "^4.0.1",
     "prisma": "^6.0.0",
     "supertest": "^7.2.2",
-    "ts-jest": "^29.4.9",
+    "ts-jest": "^29.4.11",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
